@@ -1,0 +1,11 @@
+[package]
+name = "events"
+version = "0.1.0"
+authors = ["Amer Safdari <safda004@umn.edu>"]
+edition = "2018"
+
+[dependencies]
+serde = "1"
+serde_derive = "1"
+serde_json = "1"
+log = { version = "0.4", features = ["std"] }

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+	<!-- Required meta tags -->
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+
+	<!-- Bootstrap CSS -->
+	<link rel="stylesheet" href="css/bootstrap.min.css">
+	<link rel="stylesheet" href="css/styles.css">
+	<title>in-vivo Scissors Console</title>
+</head>
+
+<body>
+	<div class="container-fluid">
+		<div class="row justify-content-center">
+			<h1>in-vivo Scissors Console</h1>
+		</div>
+		<div class="row pt-5">
+			<div class="col">
+				<h2>Data Collection</h2>
+				<form>
+					<label for="data_filename">Data Filename</label>
+					<div class="input-group mb-3">
+						<input type="text" class="form-control" id="inputFilename" placeholder="data00" value="data00">
+						<div class="input-group-append">
+							<span class="input-group-text">.csv</span>
+						</div>
+					</div>
+					<label for="output_dir">Output Directory</label>
+					<div class="input-group mb-3">
+						<input type="text" class="form-control" placeholder="" id="inputFolderPath" value="">
+						<div class="input-group-append">
+							<button class="btn btn-primary" type="button" id="btnChooseDir">Choose Directory</button>
+						</div>
+					</div>
+					<div class="row my-4">
+						<div class="col">
+							<button type="button" id="btnStart" class="btn btn-primary btn-lg btn-block">Start</button>
+						</div>
+						<div class="col">
+							<button type="button" id="btnStop" class="btn btn-secondary btn-lg btn-block">Stop</button>
+						</div>
+					</div>
+				</form>
+			</div>
+			<div class="col">
+				<h2>Status Log</h2>
+				<div class="form-group">
+					<textarea class="form-control" id="statusLog" rows="7" style="background-color: white" readonly></textarea>
+				</div>
+				<button type="button" id="btnClearLog" class="btn btn-dark btn-lg btn-block">Clear Log</button>
+			</div>
+		</div>
+		<div class="row">
+			<div class="col">
+				<h2>Plot</h2>
+				<canvas id="diagnosticPlot"></canvas>
+			</div>
+		</div>
+	</div>
+	<script src="Chart.min.js"></script>
+	<script src="client.js"></script>
+	<script>
+		const homedir = require('os').homedir();
+		document.getElementById("inputFolderPath").value = homedir + "/Documents";
+	</script>
+</body>
+
+</html>

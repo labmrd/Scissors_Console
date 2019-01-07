@@ -1,0 +1,7 @@
+[package]
+name = "nidaqmx-sys"
+version = "0.1.0"
+authors = ["Amer Safdari <safda004@umn.edu>"]
+edition = "2018"
+
+build = "build.rs"

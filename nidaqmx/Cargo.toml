@@ -1,0 +1,13 @@
+[package]
+name = "nidaqmx"
+version = "0.1.0"
+authors = ["Amer Safdari <safda004@umn.edu>"]
+edition = "2018"
+
+[dependencies]
+nidaqmx-sys = {path = "../nidaqmx-sys"}
+
+tokio = "0.1"
+futures = "0.1"
+time = "0.1"
+parking_lot = {version = "0.7", features = ["nightly"]}
