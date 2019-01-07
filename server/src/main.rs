@@ -1,11 +1,11 @@
 #![feature(try_from)]
 
+use tokio::codec::{FramedRead, LinesCodec};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
-use tokio::codec::{Framed, LinesCodec};
 
-use std::net::SocketAddr;
 use std::convert::TryFrom;
+use std::net::SocketAddr;
 
 use events::UiEvent;
 
@@ -17,18 +17,20 @@ const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 fn process_connections(tcp_stream: TcpStream) -> Result<(), ()> {
 	// let framed = BytesCodec::new().framed(tcp_stream);
 
-	let framed = Framed::new(tcp_stream, LinesCodec::new());
+	let (reader, mut writer) = tcp_stream.split();
 
-	let (_writer, reader) = framed.split();
+	let reader = FramedRead::new(reader, LinesCodec::new());
 
 	let processor = reader
-		.for_each(|msg| {
-
+		.for_each(move |msg| {
 			println!("Got {}", &msg);
+
+			let echo = tokio::io::write_all(&mut writer, &msg).map(|_| ()).map_err(|_| ());
+			let _ = echo.wait();
 
 			let uie = match UiEvent::try_from(msg.as_str()) {
 				Ok(uie) => uie,
-				Err(_) => return Ok(())
+				Err(_) => return Ok(()),
 			};
 
 			println!("{:#?}", uie);
@@ -53,7 +55,6 @@ fn process_connections(tcp_stream: TcpStream) -> Result<(), ()> {
 }
 
 fn main() -> Result<(), Box<std::error::Error>> {
-
 	let addr = SocketAddr::from(ADDR);
 	let socket = TcpListener::bind(&addr)?;
 
@@ -103,7 +104,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 // 	});
 
 // 	let mut runtime = Runtime::new().unwrap();
-	
+
 // 	runtime.spawn(ai_stream);
 // 	runtime.spawn(encoder_stream);
 
