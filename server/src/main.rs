@@ -15,7 +15,6 @@ const PORT: u16 = 8080;
 const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 
 fn process_connections(tcp_stream: TcpStream) -> Result<(), ()> {
-	// let framed = BytesCodec::new().framed(tcp_stream);
 
 	let (reader, mut writer) = tcp_stream.split();
 
@@ -57,6 +56,8 @@ fn process_connections(tcp_stream: TcpStream) -> Result<(), ()> {
 fn main() -> Result<(), Box<std::error::Error>> {
 	let addr = SocketAddr::from(ADDR);
 	let socket = TcpListener::bind(&addr)?;
+
+ 	println!("Listening on: {}", addr);
 
 	let done = socket
 		.incoming()

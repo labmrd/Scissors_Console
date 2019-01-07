@@ -272,8 +272,43 @@ impl io::Write for NidaqServerConnection {
 	}
 }
 
+fn launch_server() {
+
+	let cb = || log::error!("Server disconnected");
+
+	js! {
+
+		const { spawn } = require("child_process");
+		const server = spawn("/home/asafdari/Documents/work/scissors_console/target/debug/server");
+
+		server.stdout.on("data", (data) => {
+			console.log("stdout: ", data.toString());
+		});
+
+		server.stderr.on("data", (data) => {
+			console.log("stderr: ", data.toString());
+		});
+
+		server.on("exit", (code) => {
+			@{cb}();
+		});
+
+		const cleanExit = () => {
+			server.kill()
+		};
+
+		process.on("SIGINT", cleanExit); // catch ctrl-c
+		process.on("SIGTERM", cleanExit); // catch kill
+
+		process.on("exit", cleanExit);
+
+	}
+}
+
 fn main() -> Result<(), Box<std::error::Error>> {
 	stdweb::initialize();
+
+	launch_server();
 
 	let dom = stdweb::web::document();
 	let log_handle = SimpleLogger::init().unwrap();
