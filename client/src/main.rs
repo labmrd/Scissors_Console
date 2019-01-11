@@ -24,7 +24,7 @@ use stdweb::web::event::ClickEvent;
 
 use log::{Level, LevelFilter, Metadata, Record, SetLoggerError};
 
-use events::UiEvent;
+use events::Event;
 
 type AppResult<T> = ::std::result::Result<T, AppError>;
 type IoResult<T> = std::io::Result<T>;
@@ -73,7 +73,7 @@ impl log::Log for SimpleLogger {
 			let _ = writeln!(
 				&mut buf as &mut fmt::Write,
 				"{}\t{}\t{}",
-				record.level().to_string(),
+				record.level(),
 				get_timestamp(),
 				record.args()
 			);
@@ -333,20 +333,20 @@ fn main() -> Result<(), Box<std::error::Error>> {
 			}
 		};
 
-		UiEvent::StartPressed(data_path).send(&mut net_handle);
+		events::Client::StartPressed(data_path).send(&mut net_handle);
 	})?;
 
 	let mut net_handle = net_client.clone();
 	stop_btn.register_click_callback(move || {
-		UiEvent::StopPressed.send(&mut net_handle);
+		events::Client::StopPressed.send(&mut net_handle);
 	})?;
 
 	net_client.register_data_callback(|data: String| {
 
-		let uie = match UiEvent::try_from(data.as_str()) {
+		let uie = match events::Client::try_from(data.as_str()) {
 			Ok(uie) => uie,
 			Err(_) => {
-				log::error!("Could not deserialize UiEvent");
+				log::error!("Could not deserialize ClientEvent");
 				return;
 			}
 		};
