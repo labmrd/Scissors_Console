@@ -18,6 +18,10 @@ pub trait Event<'de>: Sized + Debug + Serialize + Deserialize<'de> {
 
 		let _ = wtr.write_all(b"\n");
 	}
+
+	fn as_bytes(self) -> Option<Box<[u8]>> {
+		serde_json::to_vec(&self).map(|vec| vec.into_boxed_slice()).ok()
+	}
 }
 
 macro_rules! impl_try_from {

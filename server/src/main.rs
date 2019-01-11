@@ -5,77 +5,19 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
 use std::convert::TryFrom;
-use std::io::{self, Write};
+
 use std::net::SocketAddr;
-use std::sync::Arc;
 
 use parking_lot::Mutex;
 
 use log::{Level, Metadata, Record};
 
-type WriteableSocket = tokio::io::WriteHalf<tokio::net::TcpStream>;
+use events::Event;
 
-struct SocketHandle {
-	inner: Arc<Mutex<WriteableSocket>>,
-}
-
-impl From<WriteableSocket> for SocketHandle {
-	fn from(socket: WriteableSocket) -> SocketHandle {
-		SocketHandle {
-			inner: Arc::new(Mutex::new(socket)),
-		}
-	}
-}
-
-impl Clone for SocketHandle {
-	fn clone(&self) -> Self {
-		Self {
-			inner: self.inner.clone(),
-		}
-	}
-}
-
-impl Write for SocketHandle {
-	fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-		let mut socket_lock = self.inner.lock();
-		let socket = &mut *socket_lock;
-
-		socket.write(buf)
-	}
-
-	fn flush(&mut self) -> io::Result<()> {
-		let mut socket_lock = self.inner.lock();
-		let socket = &mut *socket_lock;
-
-		socket.flush()
-	}
-}
-
-impl AsyncWrite for SocketHandle {
-	fn shutdown(&mut self) -> Result<Async<()>, tokio::io::Error> {
-		let mut socket_lock = self.inner.lock();
-		let socket = &mut *socket_lock;
-
-		socket.shutdown()
-	}
-
-	fn poll_write(&mut self, buf: &[u8]) -> Result<Async<usize>, tokio::io::Error> {
-		let mut socket_lock = self.inner.lock();
-		let socket = &mut *socket_lock;
-
-		socket.poll_write(buf)
-	}
-
-	fn poll_flush(&mut self) -> Result<Async<()>, tokio::io::Error> {
-		let mut socket_lock = self.inner.lock();
-		let socket = &mut *socket_lock;
-
-		socket.poll_flush()
-	}
-}
+type SocketTxHandle = futures::sync::mpsc::UnboundedSender<events::Server>;
 
 struct GuiLogger {
-	connection: Mutex<Option<SocketHandle>>,
+	connection: Mutex<Option<SocketTxHandle>>,
 }
 
 impl GuiLogger {
@@ -85,8 +27,8 @@ impl GuiLogger {
 		}
 	}
 
-	fn register_socket(&self, socket: WriteableSocket) {
-		*self.connection.lock() = Some(socket.into());
+	fn register_socket(&self, tx: SocketTxHandle) {
+		*self.connection.lock() = Some(tx);
 	}
 }
 
@@ -100,17 +42,12 @@ impl log::Log for GuiLogger {
 			return;
 		}
 
-		let connection = self.connection.lock().as_ref().map(SocketHandle::clone);
+		let mut connection_lock = self.connection.lock();
+		let connection = &*connection_lock;
 
-		if let Some(socket) = connection {
-			return;
+		if let Some(tx) = connection {
 			let msg = format!("{}\t{}", record.level(), record.args());
-
-			tokio::spawn(
-				tokio::io::write_all(socket, msg)
-					.map(|_| ())
-					.map_err(|_| ()),
-			);
+			let _ = tx.unbounded_send(events::Server::Msg(msg)).map_err(|_| *connection_lock = None);
 		} else {
 			println!("Server stdout: {}\t{}", record.level(), record.args());
 		}
@@ -137,9 +74,22 @@ static LOGGER: GuiLogger = GuiLogger::new();
 fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 	let (reader, writer) = tcp_stream.split();
 
-	LOGGER.register_socket(writer);
+	let (tx, rx) = futures::sync::mpsc::unbounded::<events::Server>();
+
+	let log_tx = tx.clone();
+
+	LOGGER.register_socket(log_tx);
 
 	let reader = FramedRead::new(reader, LinesCodec::new());
+
+	let channel_reader = rx
+		.filter_map(|ev| ev.as_bytes())
+		.fold(writer, |writer, event| {
+			let amt_written = tokio::io::write_all(writer, event)
+				.map(|(writer, _)| writer)
+				.map_err(|_| ());
+			amt_written
+		}).map(|_| ());
 
 	let processor = reader
 		.for_each(move |msg| {
@@ -154,7 +104,7 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 
 			Ok(())
 		})
-		.and_then(|()| {
+		.and_then(|_| {
 			log::trace!("Socket received FIN packet and closed connection");
 			Ok(())
 		})
@@ -168,6 +118,8 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 		});
 
 	tokio::spawn(processor);
+	tokio::spawn(channel_reader);
+
 	Ok(())
 }
 
@@ -178,7 +130,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 	let socket = TcpListener::bind(&addr)?;
 
 	log::trace!("Listening on: {}", addr);
-	
+
 	let connection_daemon = socket
 		.incoming()
 		.map_err(|_| ())
