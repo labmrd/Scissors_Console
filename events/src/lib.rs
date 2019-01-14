@@ -5,7 +5,7 @@ extern crate serde_derive;
 
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::io::Write;
+use std::io::{BufRead, Write};
 
 use serde::{Deserialize, Serialize};
 
@@ -19,8 +19,8 @@ pub trait Event<'de>: Sized + Debug + Serialize + Deserialize<'de> {
 		let _ = wtr.write_all(b"\n");
 	}
 
-	fn as_bytes(self) -> Option<Box<[u8]>> {
-		serde_json::to_vec(&self).map(|vec| vec.into_boxed_slice()).ok()
+	fn as_str(self) -> Option<String> {
+		serde_json::to_string(&self).ok()
 	}
 }
 
@@ -64,3 +64,10 @@ pub enum Server {
 impl_try_from!(Client, Server);
 
 impl Event<'_> for Server {}
+
+pub fn process<'a, Ev>(json: &'a str) -> impl Iterator<Item = Option<Ev>> + 'a
+where
+	Ev: TryFrom<&'a str>
+{
+	str::lines(json).map(|json| TryFrom::try_from(json).ok())
+}

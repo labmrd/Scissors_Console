@@ -343,15 +343,12 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
 	net_client.register_data_callback(|data: String| {
 
-		let uie = match events::Client::try_from(data.as_str()) {
-			Ok(uie) => uie,
-			Err(_) => {
-				log::error!("Could not deserialize ClientEvent");
-				return;
+		events::process::<events::Server>(data.as_ref()).for_each(|ev| {
+			match ev {
+				Some(ev) => log::debug!("Deserialized from server: {:#?}", &ev),
+				_ => log::debug!("Could not deserialize event from server")
 			}
-		};
-		
-		log::trace!("Deserialized: {:?}", &uie);
+		});
 	});
 
 	clear_log_btn.register_click_callback(move || {

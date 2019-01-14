@@ -1,6 +1,6 @@
 #![feature(try_from)]
 
-use tokio::codec::{FramedRead, LinesCodec};
+use tokio::codec::{Framed, LinesCodec};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
 
@@ -46,10 +46,10 @@ impl log::Log for GuiLogger {
 		let connection = &*connection_lock;
 
 		if let Some(tx) = connection {
-			let msg = format!("{}\t{}", record.level(), record.args());
+			let msg = format!("\t{}\t{}", record.level(), record.args());
 			let _ = tx.unbounded_send(events::Server::Msg(msg)).map_err(|_| *connection_lock = None);
 		} else {
-			println!("Server stdout: {}\t{}", record.level(), record.args());
+			println!("SERVER STDOUT\t{}\t{}", record.level(), record.args());
 		}
 	}
 
@@ -58,7 +58,7 @@ impl log::Log for GuiLogger {
 
 impl GuiLogger {
 	#[cfg(debug_assertions)]
-	const LOG_LEVEL: Level = Level::Trace;
+	const LOG_LEVEL: Level = Level::Debug;
 
 	#[cfg(not(debug_assertions))]
 	const LOG_LEVEL: Level = Level::Warn;
@@ -72,7 +72,8 @@ const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 static LOGGER: GuiLogger = GuiLogger::new();
 
 fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
-	let (reader, writer) = tcp_stream.split();
+	let framed = Framed::new(tcp_stream, LinesCodec::new());
+	let (writer, reader) = framed.split();
 
 	let (tx, rx) = futures::sync::mpsc::unbounded::<events::Server>();
 
@@ -80,44 +81,44 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 
 	LOGGER.register_socket(log_tx);
 
-	let reader = FramedRead::new(reader, LinesCodec::new());
-
 	let channel_reader = rx
-		.filter_map(|ev| ev.as_bytes())
+		.filter_map(|ev| ev.as_str())
 		.fold(writer, |writer, event| {
-			let amt_written = tokio::io::write_all(writer, event)
-				.map(|(writer, _)| writer)
-				.map_err(|_| ());
-			amt_written
+			writer.send(event).map(|writer| writer).map_err(|_| ())
 		}).map(|_| ());
 
-	let processor = reader
+	let socket_reader = reader
 		.for_each(move |msg| {
-			log::trace!("Got {}", &msg);
+			log::debug!("Got JSON: {}", &msg);
 
 			let uie = match events::Client::try_from(msg.as_str()) {
 				Ok(uie) => uie,
 				Err(_) => return Ok(()),
 			};
 
-			log::trace!("{:#?}", uie);
+			log::debug!("Server Deserialized: {:#?}", uie);
+
+			match uie {
+				events::Client::StartPressed(file) => log::info!("Server Recieved Start Command, file: {}", file),
+				events::Client::StopPressed => log::info!("Server Recieved Stop Command")
+			};
 
 			Ok(())
 		})
 		.and_then(|_| {
-			log::trace!("Socket received FIN packet and closed connection");
+			log::debug!("Socket received FIN packet and closed connection");
 			Ok(())
 		})
 		.or_else(|err| {
-			log::trace!("Socket closed with error: {:?}", err);
+			log::debug!("Socket closed with error: {:?}", err);
 			Err(err)
 		})
 		.then(|result| {
-			log::trace!("Socket closed with result: {:?}", result);
+			log::debug!("Socket closed with result: {:?}", result);
 			Ok(())
 		});
 
-	tokio::spawn(processor);
+	tokio::spawn(socket_reader);
 	tokio::spawn(channel_reader);
 
 	Ok(())
@@ -129,7 +130,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 	let addr = SocketAddr::from(ADDR);
 	let socket = TcpListener::bind(&addr)?;
 
-	log::trace!("Listening on: {}", addr);
+	log::debug!("Listening on: {}", addr);
 
 	let connection_daemon = socket
 		.incoming()
