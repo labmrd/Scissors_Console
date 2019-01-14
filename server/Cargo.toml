@@ -5,7 +5,7 @@ authors = ["Amer Safdari <safda004@umn.edu>"]
 edition = "2018"
 
 [dependencies]
-# nidaqmx = {path = "../nidaqmx"}
+nidaqmx = {path = "../nidaqmx"}
 events = {path = "../events"}
 
 tokio = "0.1"

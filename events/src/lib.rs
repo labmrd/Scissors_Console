@@ -3,9 +3,12 @@
 #[macro_use]
 extern crate serde_derive;
 
+#[macro_use]
+extern crate derive_more;
+
 use std::convert::TryFrom;
 use std::fmt::Debug;
-use std::io::{BufRead, Write};
+use std::io::Write;
 
 use serde::{Deserialize, Serialize};
 
@@ -54,11 +57,15 @@ pub enum Client {
 
 impl Event<'_> for Client {}
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Display)]
 pub enum Server {
+	#[display(fmt = "Data collection started")]
 	CollectionStarted,
+	#[display(fmt = "Data collection ended")]
 	CollectionEnded,
 	Msg(String),
+	#[display(fmt = "Datapoint: {},{}", _0, _1)]
+	DataPoint(f64, f64)
 }
 
 impl_try_from!(Client, Server);

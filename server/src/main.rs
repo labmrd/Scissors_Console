@@ -3,9 +3,9 @@
 use tokio::codec::{Framed, LinesCodec};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
+use futures::sync as f_sync;
 
 use std::convert::TryFrom;
-
 use std::net::SocketAddr;
 
 use parking_lot::Mutex;
@@ -13,8 +13,10 @@ use parking_lot::Mutex;
 use log::{Level, Metadata, Record};
 
 use events::Event;
+use nidaqmx::{AiChannel, CiEncoderChannel, EncoderReading};
 
-type SocketTxHandle = futures::sync::mpsc::UnboundedSender<events::Server>;
+type SocketTxHandle = f_sync::mpsc::UnboundedSender<events::Server>;
+type StopCollectionHandle = f_sync::oneshot::Sender<()>;
 
 struct GuiLogger {
 	connection: Mutex<Option<SocketTxHandle>>,
@@ -46,8 +48,10 @@ impl log::Log for GuiLogger {
 		let connection = &*connection_lock;
 
 		if let Some(tx) = connection {
-			let msg = format!("\t{}\t{}", record.level(), record.args());
-			let _ = tx.unbounded_send(events::Server::Msg(msg)).map_err(|_| *connection_lock = None);
+			let msg = format!("SERVER\t{}\t{}", record.level(), record.args());
+			let _ = tx
+				.unbounded_send(events::Server::Msg(msg))
+				.map_err(|_| *connection_lock = None);
 		} else {
 			println!("SERVER STDOUT\t{}\t{}", record.level(), record.args());
 		}
@@ -71,6 +75,71 @@ const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 
 static LOGGER: GuiLogger = GuiLogger::new();
 
+fn start_collection() -> StopCollectionHandle {
+	const SAMPLING_FREQ: f64 = 1e5;
+
+	let (prod, con) = futures::sync::oneshot::channel::<()>();
+
+	let mut enc_file = std::io::BufWriter::with_capacity(
+		1024 * 1024,
+		std::fs::File::create("enc_data.csv").unwrap(),
+	);
+	let mut adc_file = std::io::BufWriter::with_capacity(
+		1024 * 1024,
+		std::fs::File::create("adc_data.csv").unwrap(),
+	);
+
+	let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
+	let ai_chan = AiChannel::new(SAMPLING_FREQ, "/Dev1/PFI13").make_async();
+
+	let encoder_stream = encoder_chan.for_each(move |val| {
+		let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
+		Ok(())
+	});
+
+	let ai_stream = ai_chan.for_each(move |val| {
+		let _ = writeln!(
+			&mut adc_file,
+			"{},{},{}",
+			val.timestamp, val.data[0], val.data[1]
+		);
+		Ok(())
+	});
+
+	let data_stream = encoder_stream.select(ai_stream).map(|_| ()).map_err(|_| ());
+	let data_stream = data_stream
+		.select(con.map(|_| ()).map_err(|_| ()))
+		.map(|_| ())
+		.map_err(|_| ());
+
+	tokio::spawn(data_stream);
+
+	prod
+}
+
+fn dispatch_event(ev: events::Client) {
+
+	static STOP_HANDLE: Mutex<Option<StopCollectionHandle>> = Mutex::new(None);
+
+	let mut stop_handle_lock = STOP_HANDLE.lock();
+	let stop_handle = &mut *stop_handle_lock;
+
+	match ev {
+		events::Client::StartPressed(file) => {
+			if stop_handle.is_none() {
+				log::info!("Recieved Start Command, file: {}", file);
+				*stop_handle = Some(start_collection());
+			}
+		},
+		events::Client::StopPressed => {
+			if let Some(stop_handle) = stop_handle.take() {
+				let _ = stop_handle.send(());
+				log::info!("Recieved Stop Command");
+			}
+		},
+	};
+}
+
 fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 	let framed = Framed::new(tcp_stream, LinesCodec::new());
 	let (writer, reader) = framed.split();
@@ -85,23 +154,17 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 		.filter_map(|ev| ev.as_str())
 		.fold(writer, |writer, event| {
 			writer.send(event).map(|writer| writer).map_err(|_| ())
-		}).map(|_| ());
+		})
+		.map(|_| ());
 
 	let socket_reader = reader
 		.for_each(move |msg| {
-			log::debug!("Got JSON: {}", &msg);
-
 			let uie = match events::Client::try_from(msg.as_str()) {
 				Ok(uie) => uie,
 				Err(_) => return Ok(()),
 			};
 
-			log::debug!("Server Deserialized: {:#?}", uie);
-
-			match uie {
-				events::Client::StartPressed(file) => log::info!("Server Recieved Start Command, file: {}", file),
-				events::Client::StopPressed => log::info!("Server Recieved Stop Command")
-			};
+			dispatch_event(uie);
 
 			Ok(())
 		})

@@ -7,7 +7,6 @@ static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 use std::{
 	fmt,
 	io,
-	convert::TryFrom,
 	sync::{Arc, Mutex, MutexGuard}
 };
 
@@ -343,11 +342,8 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
 	net_client.register_data_callback(|data: String| {
 
-		events::process::<events::Server>(data.as_ref()).for_each(|ev| {
-			match ev {
-				Some(ev) => log::debug!("Deserialized from server: {:#?}", &ev),
-				_ => log::debug!("Could not deserialize event from server")
-			}
+		events::process::<events::Server>(data.as_ref()).flatten().for_each(|ev| {
+			log::trace!("{}", ev);
 		});
 	});
 
@@ -366,7 +362,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 
 		set_folder_path_text(&dir);
 
-		log::trace!("Chosen directory: {}", dir);
+		log::debug!("Chosen directory: {}", dir);
 	})?;
 
 	stdweb::event_loop();
