@@ -11,5 +11,5 @@ events = {path = "../events"}
 tokio = "0.1"
 tokio-codec = "0.1"
 log = { version = "0.4"}
-parking_lot = {version = "0.7", features = ["nightly"]}
+parking_lot = {version = "0.7.0", features = ["nightly"]}
 futures = "0.1"

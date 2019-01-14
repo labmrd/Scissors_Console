@@ -278,7 +278,7 @@ fn launch_server() {
 	js! {
 
 		const { spawn } = require("child_process");
-		const server = spawn("/home/asafdari/Documents/work/scissors_console/target/debug/server");
+		const server = spawn("/tmp/cargo/debug/server");
 
 		server.stdout.on("data", (data) => {
 			console.log("stdout: ", data.toString());
@@ -313,7 +313,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 	let log_handle = SimpleLogger::init().unwrap();
 	let ehandle = ElectronHandle::new();
 
-	let net_client = NidaqServerConnection::connect("localhost", "8080", || {
+	let net_client = NidaqServerConnection::connect("localhost", "58080", || {
 		log::info!("Connected to NI DAQ System");
 	});
 

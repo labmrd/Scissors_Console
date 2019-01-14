@@ -69,7 +69,7 @@ impl GuiLogger {
 }
 
 const LOCALHOST: [u8; 4] = [127, 0, 0, 1];
-const PORT: u16 = 8080;
+const PORT: u16 = 58080;
 
 const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 
