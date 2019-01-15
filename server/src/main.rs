@@ -1,12 +1,13 @@
 #![feature(try_from)]
 
+use futures::sync as f_sync;
 use tokio::codec::{Framed, LinesCodec};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
-use futures::sync as f_sync;
 
 use std::convert::TryFrom;
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 
 use parking_lot::Mutex;
 
@@ -75,19 +76,30 @@ const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 
 static LOGGER: GuiLogger = GuiLogger::new();
 
-fn start_collection() -> StopCollectionHandle {
+fn start_collection<S: AsRef<Path>>(file: S) -> StopCollectionHandle {
 	const SAMPLING_FREQ: f64 = 1e5;
+
+	let mut open_opts = std::fs::OpenOptions::new();
+	open_opts.write(true).create_new(true);
+
+	let fpath = S::as_ref(&file);
+
+	std::fs::create_dir_all(fpath).unwrap();
+
+	let mut enc_fname = PathBuf::from(fpath);
+	enc_fname.push("enc");
+	enc_fname.set_extension("csv");
+
+	let mut adc_fname = PathBuf::from(fpath);
+	adc_fname.push("adc");
+	adc_fname.set_extension("csv");
 
 	let (prod, con) = futures::sync::oneshot::channel::<()>();
 
-	let mut enc_file = std::io::BufWriter::with_capacity(
-		1024 * 1024,
-		std::fs::File::create("enc_data.csv").unwrap(),
-	);
-	let mut adc_file = std::io::BufWriter::with_capacity(
-		1024 * 1024,
-		std::fs::File::create("adc_data.csv").unwrap(),
-	);
+	let mut enc_file =
+		std::io::BufWriter::with_capacity(1024 * 1024, open_opts.open(enc_fname).unwrap());
+	let mut adc_file =
+		std::io::BufWriter::with_capacity(1024 * 1024, open_opts.open(adc_fname).unwrap());
 
 	let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
 	let ai_chan = AiChannel::new(SAMPLING_FREQ, "/Dev1/PFI13").make_async();
@@ -118,7 +130,6 @@ fn start_collection() -> StopCollectionHandle {
 }
 
 fn dispatch_event(ev: events::Client) {
-
 	static STOP_HANDLE: Mutex<Option<StopCollectionHandle>> = Mutex::new(None);
 
 	let mut stop_handle_lock = STOP_HANDLE.lock();
@@ -128,15 +139,15 @@ fn dispatch_event(ev: events::Client) {
 		events::Client::StartPressed(file) => {
 			if stop_handle.is_none() {
 				log::info!("Recieved Start Command, file: {}", file);
-				*stop_handle = Some(start_collection());
+				*stop_handle = Some(start_collection(file));
 			}
-		},
+		}
 		events::Client::StopPressed => {
 			if let Some(stop_handle) = stop_handle.take() {
 				let _ = stop_handle.send(());
 				log::info!("Recieved Stop Command");
 			}
-		},
+		}
 	};
 }
 

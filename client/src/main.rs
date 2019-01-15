@@ -198,7 +198,7 @@ fn get_datafile_path() -> Option<String> {
 	let data_path = js! {
 		let path = document.getElementById("inputFolderPath").value;
 		let file = document.getElementById("inputFilename").value;
-		return path + "/" + file + ".csv";
+		return path + "/" + file;
 	}
 	.into_string();
 
@@ -273,12 +273,17 @@ impl io::Write for NidaqServerConnection {
 
 fn launch_server() {
 
+	#[cfg(debug_assertions)]
+	static PROG_PATH: &str = "/tmp/cargo/debug/server";
+	#[cfg(not(debug_assertions))]
+	static PROG_PATH: &str = "/tmp/cargo/release/server";
+
 	let cb = || log::error!("Server disconnected");
 
 	js! {
 
 		const { spawn } = require("child_process");
-		const server = spawn("/tmp/cargo/debug/server");
+		const server = spawn(@{PROG_PATH});
 
 		server.stdout.on("data", (data) => {
 			console.log("stdout: ", data.toString());
@@ -313,7 +318,7 @@ fn main() -> Result<(), Box<std::error::Error>> {
 	let log_handle = SimpleLogger::init().unwrap();
 	let ehandle = ElectronHandle::new();
 
-	let net_client = NidaqServerConnection::connect("localhost", "58080", || {
+	let net_client = NidaqServerConnection::connect("127.0.0.1", "58080", || {
 		log::info!("Connected to NI DAQ System");
 	});
 
