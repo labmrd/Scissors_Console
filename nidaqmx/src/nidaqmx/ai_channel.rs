@@ -9,9 +9,10 @@ use futures::{Async, Poll, Stream};
 use parking_lot::{Mutex, RwLock};
 
 const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
-const BATCH_SIZE: usize = 1000;
-const SAMPLE_RATE: f64 = 10000.0; // todo remove the need for this constant
+const BATCH_SIZE: usize = 10;
+const SAMPLE_RATE: f64 = 100.0; // todo remove the need for this constant
 const NUM_CHANNELS: usize = 2;
+const VOLTAGE_SPAN: f64 = 10.0;
 
 type RawScanData = [f64; NUM_CHANNELS];
 
@@ -78,7 +79,7 @@ impl AiChannel {
 
 		ai_channel
 			.task_handle
-			.create_ai_volt_chan("Dev1/ai0:1", SAMPLE_TIMEOUT_SECS);
+			.create_ai_volt_chan("Dev1/ai0:1", VOLTAGE_SPAN);
 		ai_channel
 			.task_handle
 			.configure_sample_clock(clk_src, sample_rate, sample_rate as u64);
