@@ -232,7 +232,7 @@ use tokio::runtime::Runtime;
 // 	})
 // }
 
-type SamplingRate = typenum::U1000;
+const SAMPLING_RATE: usize = 1000;
 
 fn main() {
 
@@ -240,7 +240,7 @@ fn main() {
 	// let mut adc_file = std::io::BufWriter::with_capacity(1024 * 1024, std::fs::File::create("adc_data.csv").unwrap());
 
 	// let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
-	let ai_chan = AiChannel::<SamplingRate>::new("/Dev1/PFI13");
+	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
 
 	// let encoder_stream = encoder_chan.for_each(move |val| {
 	// 	// let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
@@ -248,7 +248,7 @@ fn main() {
 	// 	Ok(())
 	// });
 
-	let ai_stream = AiChannel::<SamplingRate>::make_async(ai_chan).for_each(move |val| {
+	let ai_stream = ai_chan.make_async().for_each(move |val| {
 		// let _ = writeln!(&mut adc_file, "{},{},{}", val.timestamp, val.data[0], val.data[1]);
 		println!("{},{},{}", val.timestamp, val.data[0], val.data[1]);
 		Ok(())

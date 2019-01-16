@@ -5,46 +5,47 @@ use std::ptr;
 
 use futures::{
 	stream::Stream,
-	sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+	sync::mpsc::{self, UnboundedSender},
 };
-
-use generic_array::{ArrayLength, GenericArray};
-use typenum::Unsigned;
 
 const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
 const NUM_CHANNELS: usize = 2;
 const VOLTAGE_SPAN: f64 = 10.0;
-
-type DaqCallbackFreq = typenum::U100;
-const DAQ_CALLBACK_FREQ: usize = DaqCallbackFreq::USIZE; // hz
+const DAQ_CALLBACK_FREQ: usize = 100; // hz
 
 type RawScanData = [f64; NUM_CHANNELS];
 
-struct BatchedScan<N: ArrayLength<RawScanData>> {
-	data: GenericArray<RawScanData, N>,
+struct BatchedScan {
+	data: Box<[RawScanData]>,
 	timestamp: u64,
 }
 
-impl<N: ArrayLength<RawScanData>> BatchedScan<N> {
-	pub unsafe fn new_uninit() -> Self {
-		std::mem::uninitialized()
-	}
-}
+impl BatchedScan {
+	pub unsafe fn new_uninit(batch_size: usize) -> Self {
+		let boxed: Box<[RawScanData]> =
+			(0..batch_size).map(|_| std::mem::uninitialized()).collect();
 
-impl<N: ArrayLength<RawScanData>> BatchedScan<N> {
-	fn into_scan(self, sample_rate: u64) -> impl Iterator<Item = ScanData> {
+		Self {
+			data: boxed,
+			timestamp: 0,
+		}
+	}
+
+	fn into_scan_iter<'a>(&'a self, sample_rate: usize) -> impl Iterator<Item = ScanData> + 'a {
 		const TO_NANOSEC: u64 = 1e9 as u64;
 
 		let base_ts = self.timestamp;
+		let data_len = self.data.len() as u32;
 
-		let tstamp = (1..).map(move |ind| ind * TO_NANOSEC / sample_rate + base_ts);
+		let tstamp = (1..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
 
 		let scan_data = self
 			.data
-			.into_iter()
+			.iter()
 			.rev()
 			.zip(tstamp)
-			.map(|(data, ts)| ScanData::new(data, ts));
+			.map(|(data, ts)| ScanData::new(*data, ts))
+			.rev();
 
 		scan_data
 	}
@@ -58,93 +59,63 @@ pub struct ScanData {
 
 impl ScanData {
 	fn new(data: [f64; NUM_CHANNELS], timestamp: u64) -> Self {
-		ScanData { data, timestamp }
+		ScanData {
+			data: data,
+			timestamp,
+		}
 	}
 }
 
-pub struct AiChannel<SampleRate: Unsigned> {
+struct ScanDataChannel {
+	inner: UnboundedSender<ScanData>,
+	sample_rate: usize
+}
+
+pub struct AiChannel {
 	task_handle: TaskHandle,
-	_phantom_data: std::marker::PhantomData<SampleRate>,
+	sample_rate: usize,
+	batch_size: usize,
 }
 
-pub struct AsyncAiStream<BatchSize: ArrayLength<RawScanData>> {
-	inner: UnboundedReceiver<BatchedScan<BatchSize>>,
-	sample_rate: u64,
-}
-
-impl<N: ArrayLength<RawScanData>> AsyncAiStream<N> {
-	fn get(self) -> impl Stream<Item = ScanData, Error = ()> {
-		let samp_rate = self.sample_rate;
-		self.inner
-			.map(move |batch| batch.into_scan(samp_rate))
-			.map(|scan_iter| futures::stream::iter_ok(scan_iter))
-			.flatten()
-	}
-}
-
-trait AsyncChannel<SampleRate>
-where
-	Self: Sized,
-	Self::BatchSize: ArrayLength<RawScanData>,
-	SampleRate: Unsigned,
-{
-	type BatchSize;
-	fn new(self) -> AsyncAiStream<Self::BatchSize>;
-}
-
-impl<SampleRate> AiChannel<SampleRate>
-where
-	SampleRate: Unsigned,
-{
-	const SAMPLE_RATE: usize = SampleRate::USIZE;
-	const NIDAQ_INTERNAL_SAMPLE_BUFFER_SIZE: u64 = 10 * Self::SAMPLE_RATE as u64;
-
-	const BATCH_SIZE: usize = Self::SAMPLE_RATE / DAQ_CALLBACK_FREQ;
-
-	pub fn new<S: AsRef<str>>(clk_src: S) -> Self {
+impl AiChannel {
+	pub fn new<S: AsRef<str>>(clk_src: S, sample_rate: usize) -> Self {
 		let task_handle = TaskHandle::new();
 
 		let mut ai_channel = AiChannel {
 			task_handle,
-			_phantom_data: std::marker::PhantomData,
+			sample_rate,
+			batch_size: sample_rate / DAQ_CALLBACK_FREQ,
 		};
 
+		ai_channel.init(clk_src.as_ref());
+
 		ai_channel
-			.task_handle
+	}
+
+	fn init(&mut self, clk_src: &str) {
+		let internal_buf_size = 10 * self.sample_rate as u64;
+
+		self.task_handle
 			.create_ai_volt_chan("Dev1/ai0:1", VOLTAGE_SPAN);
 
-		ai_channel.task_handle.configure_sample_clock(
-			clk_src.as_ref(),
-			Self::SAMPLE_RATE as f64,
-			Self::NIDAQ_INTERNAL_SAMPLE_BUFFER_SIZE,
+		self.task_handle.configure_sample_clock(
+			clk_src,
+			self.sample_rate as f64,
+			internal_buf_size,
 		);
-
-		ai_channel
 	}
 
-	pub fn make_async(self) -> impl Stream<Item = ScanData, Error = ()> {
-		AsyncChannel::new(self).get()
-	}
-}
-
-use std::ops::Div;
-use typenum::Quot;
-
-impl<SampleRate> AsyncChannel<SampleRate> for AiChannel<SampleRate>
-where
-	SampleRate: Unsigned + Div<DaqCallbackFreq>,
-	Quot<SampleRate, DaqCallbackFreq>: ArrayLength<RawScanData>,
-{
-	type BatchSize = Quot<SampleRate, DaqCallbackFreq>;
-
-	fn new(mut self) -> AsyncAiStream<Self::BatchSize> {
+	pub fn make_async(mut self) -> impl Stream<Item = ScanData, Error = ()> {
 		let (snd, recv) = mpsc::unbounded();
 
 		unsafe {
 			self.task_handle.register_read_callback(
-				Self::BatchSize::U32,
-				async_read_callback_impl::<Self::BatchSize>,
-				snd,
+				self.batch_size as u32,
+				async_read_callback_impl,
+				ScanDataChannel {
+					inner: snd,
+					sample_rate: self.sample_rate
+				},
 			);
 			// We dont care about the done callback
 			self.task_handle.register_done_callback(|_| (), ());
@@ -152,27 +123,24 @@ where
 
 		self.task_handle.launch();
 
-		AsyncAiStream {
-			inner: recv,
-			sample_rate: SampleRate::U64,
-		}
+		recv
 	}
 }
 
-unsafe fn read_analog_f64<N: ArrayLength<RawScanData>>(
+unsafe fn read_analog_f64(
 	task_handle: &mut RawTaskHandle,
 	n_samps: u32,
-) -> Result<BatchedScan<N>, i32> {
+) -> Result<BatchedScan, i32> {
 	const SCAN_WARNING: i32 = 1;
 
 	let mut samps_read = 0i32;
 	let samps_read_ptr = &mut samps_read as *mut _;
 
-	let mut scan = BatchedScan::<N>::new_uninit();
+	let mut scan = BatchedScan::new_uninit(n_samps as usize);
 	scan.timestamp = get_time_steady_nanoseconds();
 
-	let buf_len = (N::USIZE * NUM_CHANNELS) as u32;
-	let buf_ptr = scan.data.as_mut_slice() as *mut _ as *mut f64;
+	let buf_len = (scan.data.len() * NUM_CHANNELS) as u32;
+	let buf_ptr = scan.data.as_mut_ptr() as *mut _ as *mut f64;
 
 	let err_code = nidaqmx_sys::DAQmxReadAnalogF64(
 		task_handle.get().as_ptr(),
@@ -186,23 +154,28 @@ unsafe fn read_analog_f64<N: ArrayLength<RawScanData>>(
 	);
 
 	match err_code {
-		0 if samps_read == N::I32 => Ok(scan),
+		0 if samps_read == n_samps as i32 => Ok(scan),
 		0 => Err(SCAN_WARNING),
 		_ => Err(err_code),
 	}
 }
 
-fn async_read_callback_impl<N>(
-	send_channel: &mut UnboundedSender<BatchedScan<N>>,
+fn async_read_callback_impl(
+	scan_chan: &mut ScanDataChannel,
 	task_handle: &mut RawTaskHandle,
 	n_samps: u32,
-) -> Result<(), ()>
-where
-	N: ArrayLength<RawScanData>,
-{
-	let result = unsafe { read_analog_f64(task_handle, n_samps) };
+) -> Result<(), ()> {
 
-	result
-		.map(|data| send_channel.unbounded_send(data).map_err(|_| ()))
-		.map_err(|err_code| task_handle.chk_err_code(err_code))?
+	let send_channel = &scan_chan.inner;
+	let sample_rate = scan_chan.sample_rate;
+
+	let batch = unsafe { read_analog_f64(task_handle, n_samps) }
+		.map_err(|err_code| task_handle.chk_err_code(err_code))?;
+
+	batch
+		.into_scan_iter(sample_rate)
+		.try_for_each(|scan| send_channel.unbounded_send(scan))
+		.map_err(|_| ())?;
+
+	Ok(())
 }
