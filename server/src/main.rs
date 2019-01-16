@@ -76,127 +76,127 @@ const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 
 static LOGGER: GuiLogger = GuiLogger::new();
 
-fn start_collection<S: AsRef<Path>>(file: S) -> StopCollectionHandle {
-	const SAMPLING_FREQ: f64 = 1e5;
+// fn start_collection<S: AsRef<Path>>(file: S) -> StopCollectionHandle {
+// 	const SAMPLING_FREQ: f64 = 1e5;
 
-	let mut open_opts = std::fs::OpenOptions::new();
-	open_opts.write(true).create_new(true);
+// 	let mut open_opts = std::fs::OpenOptions::new();
+// 	open_opts.write(true).create_new(true);
 
-	let fpath = S::as_ref(&file);
+// 	let fpath = S::as_ref(&file);
 
-	std::fs::create_dir_all(fpath).unwrap();
+// 	std::fs::create_dir_all(fpath).unwrap();
 
-	let mut enc_fname = PathBuf::from(fpath);
-	enc_fname.push("enc");
-	enc_fname.set_extension("csv");
+// 	let mut enc_fname = PathBuf::from(fpath);
+// 	enc_fname.push("enc");
+// 	enc_fname.set_extension("csv");
 
-	let mut adc_fname = PathBuf::from(fpath);
-	adc_fname.push("adc");
-	adc_fname.set_extension("csv");
+// 	let mut adc_fname = PathBuf::from(fpath);
+// 	adc_fname.push("adc");
+// 	adc_fname.set_extension("csv");
 
-	let (prod, con) = futures::sync::oneshot::channel::<()>();
+// 	let (prod, con) = futures::sync::oneshot::channel::<()>();
 
-	let mut enc_file =
-		std::io::BufWriter::with_capacity(1024 * 1024, open_opts.open(enc_fname).unwrap());
-	let mut adc_file =
-		std::io::BufWriter::with_capacity(1024 * 1024, open_opts.open(adc_fname).unwrap());
+// 	let mut enc_file =
+// 		std::io::BufWriter::with_capacity(1024 * 1024, open_opts.open(enc_fname).unwrap());
+// 	let mut adc_file =
+// 		std::io::BufWriter::with_capacity(1024 * 1024, open_opts.open(adc_fname).unwrap());
 
-	let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
-	let ai_chan = AiChannel::new(SAMPLING_FREQ, "/Dev1/PFI13").make_async();
+// 	let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
+// 	// let ai_chan = AiChannel::new(SAMPLING_FREQ, "/Dev1/PFI13").make_async();
 
-	let encoder_stream = encoder_chan.for_each(move |val| {
-		let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
-		Ok(())
-	});
+// 	let encoder_stream = encoder_chan.for_each(move |val| {
+// 		let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
+// 		Ok(())
+// 	});
 
-	let ai_stream = ai_chan.for_each(move |val| {
-		let _ = writeln!(
-			&mut adc_file,
-			"{},{},{}",
-			val.timestamp, val.data[0], val.data[1]
-		);
-		Ok(())
-	});
+// 	let ai_stream = ai_chan.for_each(move |val| {
+// 		let _ = writeln!(
+// 			&mut adc_file,
+// 			"{},{},{}",
+// 			val.timestamp, val.data[0], val.data[1]
+// 		);
+// 		Ok(())
+// 	});
 
-	let data_stream = encoder_stream.select(ai_stream).map(|_| ()).map_err(|_| ());
-	let data_stream = data_stream
-		.select(con.map(|_| ()).map_err(|_| ()))
-		.map(|_| ())
-		.map_err(|_| ());
+// 	let data_stream = encoder_stream.select(ai_stream).map(|_| ()).map_err(|_| ());
+// 	let data_stream = data_stream
+// 		.select(con.map(|_| ()).map_err(|_| ()))
+// 		.map(|_| ())
+// 		.map_err(|_| ());
 
-	tokio::spawn(data_stream);
+// 	tokio::spawn(data_stream);
 
-	prod
-}
+// 	prod
+// }
 
-fn dispatch_event(ev: events::Client) {
-	static STOP_HANDLE: Mutex<Option<StopCollectionHandle>> = Mutex::new(None);
+// fn dispatch_event(ev: events::Client) {
+// 	static STOP_HANDLE: Mutex<Option<StopCollectionHandle>> = Mutex::new(None);
 
-	let mut stop_handle_lock = STOP_HANDLE.lock();
-	let stop_handle = &mut *stop_handle_lock;
+// 	let mut stop_handle_lock = STOP_HANDLE.lock();
+// 	let stop_handle = &mut *stop_handle_lock;
 
-	match ev {
-		events::Client::StartPressed(file) => {
-			if stop_handle.is_none() {
-				log::info!("Recieved Start Command, file: {}", file);
-				*stop_handle = Some(start_collection(file));
-			}
-		}
-		events::Client::StopPressed => {
-			if let Some(stop_handle) = stop_handle.take() {
-				let _ = stop_handle.send(());
-				log::info!("Recieved Stop Command");
-			}
-		}
-	};
-}
+// 	match ev {
+// 		events::Client::StartPressed(file) => {
+// 			if stop_handle.is_none() {
+// 				log::info!("Recieved Start Command, file: {}", file);
+// 				*stop_handle = Some(start_collection(file));
+// 			}
+// 		}
+// 		events::Client::StopPressed => {
+// 			if let Some(stop_handle) = stop_handle.take() {
+// 				let _ = stop_handle.send(());
+// 				log::info!("Recieved Stop Command");
+// 			}
+// 		}
+// 	};
+// }
 
-fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
-	let framed = Framed::new(tcp_stream, LinesCodec::new());
-	let (writer, reader) = framed.split();
+// fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
+// 	let framed = Framed::new(tcp_stream, LinesCodec::new());
+// 	let (writer, reader) = framed.split();
 
-	let (tx, rx) = futures::sync::mpsc::unbounded::<events::Server>();
+// 	let (tx, rx) = futures::sync::mpsc::unbounded::<events::Server>();
 
-	let log_tx = tx.clone();
+// 	let log_tx = tx.clone();
 
-	LOGGER.register_socket(log_tx);
+// 	LOGGER.register_socket(log_tx);
 
-	let channel_reader = rx
-		.filter_map(|ev| ev.as_str())
-		.fold(writer, |writer, event| {
-			writer.send(event).map(|writer| writer).map_err(|_| ())
-		})
-		.map(|_| ());
+// 	let channel_reader = rx
+// 		.filter_map(|ev| ev.as_str())
+// 		.fold(writer, |writer, event| {
+// 			writer.send(event).map(|writer| writer).map_err(|_| ())
+// 		})
+// 		.map(|_| ());
 
-	let socket_reader = reader
-		.for_each(move |msg| {
-			let uie = match events::Client::try_from(msg.as_str()) {
-				Ok(uie) => uie,
-				Err(_) => return Ok(()),
-			};
+// 	let socket_reader = reader
+// 		.for_each(move |msg| {
+// 			let uie = match events::Client::try_from(msg.as_str()) {
+// 				Ok(uie) => uie,
+// 				Err(_) => return Ok(()),
+// 			};
 
-			dispatch_event(uie);
+// 			dispatch_event(uie);
 
-			Ok(())
-		})
-		.and_then(|_| {
-			log::debug!("Socket received FIN packet and closed connection");
-			Ok(())
-		})
-		.or_else(|err| {
-			log::debug!("Socket closed with error: {:?}", err);
-			Err(err)
-		})
-		.then(|result| {
-			log::debug!("Socket closed with result: {:?}", result);
-			Ok(())
-		});
+// 			Ok(())
+// 		})
+// 		.and_then(|_| {
+// 			log::debug!("Socket received FIN packet and closed connection");
+// 			Ok(())
+// 		})
+// 		.or_else(|err| {
+// 			log::debug!("Socket closed with error: {:?}", err);
+// 			Err(err)
+// 		})
+// 		.then(|result| {
+// 			log::debug!("Socket closed with result: {:?}", result);
+// 			Ok(())
+// 		});
 
-	tokio::spawn(socket_reader);
-	tokio::spawn(channel_reader);
+// 	tokio::spawn(socket_reader);
+// 	tokio::spawn(channel_reader);
 
-	Ok(())
-}
+// 	Ok(())
+// }
 
 // fn main() -> Result<(), Box<std::error::Error>> {
 // 	let _ = log::set_logger(&LOGGER).map(|_| log::set_max_level(log::LevelFilter::max()));
@@ -232,36 +232,31 @@ use tokio::runtime::Runtime;
 // 	})
 // }
 
-const SAMPLING_FREQ: f64 = 1e5;
+type SamplingRate = typenum::U1000;
 
 fn main() {
 
 	// let mut enc_file = std::io::BufWriter::with_capacity(1024 * 1024, std::fs::File::create("enc_data.csv").unwrap());
 	// let mut adc_file = std::io::BufWriter::with_capacity(1024 * 1024, std::fs::File::create("adc_data.csv").unwrap());
 
-	let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
-	let ai_chan = AiChannel::new(SAMPLING_FREQ, "/Dev1/PFI13").make_async();
+	// let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
+	let ai_chan = AiChannel::<SamplingRate>::new("/Dev1/PFI13");
 
-	let encoder_stream = encoder_chan.for_each(move |val| {
-		// let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
-		println!("{},{}", val.timestamp, val.pos);
-		Ok(())
-	});
+	// let encoder_stream = encoder_chan.for_each(move |val| {
+	// 	// let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
+	// 	println!("{},{}", val.timestamp, val.pos);
+	// 	Ok(())
+	// });
 
-	let ai_stream = ai_chan.for_each(move |val| {
+	let ai_stream = AiChannel::<SamplingRate>::make_async(ai_chan).for_each(move |val| {
 		// let _ = writeln!(&mut adc_file, "{},{},{}", val.timestamp, val.data[0], val.data[1]);
 		println!("{},{},{}", val.timestamp, val.data[0], val.data[1]);
 		Ok(())
 	});
 
-	let mut runtime = Runtime::new().unwrap();
-
-	// runtime.spawn(ai_stream);
-	runtime.spawn(encoder_stream);
-
 	println!("Started data collection");
 
-	runtime.shutdown_on_idle().wait().unwrap();
+	tokio::run(ai_stream);
 
 	println!("End of program.");
 }

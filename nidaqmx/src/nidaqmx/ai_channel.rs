@@ -9,13 +9,13 @@ use futures::{
 };
 
 use generic_array::{ArrayLength, GenericArray};
-use typenum::{Unsigned, U100};
+use typenum::Unsigned;
 
 const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
 const NUM_CHANNELS: usize = 2;
 const VOLTAGE_SPAN: f64 = 10.0;
 
-type DaqCallbackFreq = U100;
+type DaqCallbackFreq = typenum::U100;
 const DAQ_CALLBACK_FREQ: usize = DaqCallbackFreq::USIZE; // hz
 
 type RawScanData = [f64; NUM_CHANNELS];
@@ -31,39 +31,23 @@ impl<N: ArrayLength<RawScanData>> BatchedScan<N> {
 	}
 }
 
-impl<N: ArrayLength<RawScanData> + 'static> BatchedScan<N> {
-
+impl<N: ArrayLength<RawScanData>> BatchedScan<N> {
 	fn into_scan(self, sample_rate: u64) -> impl Iterator<Item = ScanData> {
-
 		const TO_NANOSEC: u64 = 1e9 as u64;
 
 		let base_ts = self.timestamp;
 
 		let tstamp = (1..).map(move |ind| ind * TO_NANOSEC / sample_rate + base_ts);
 
-		let scan_data = self.data.into_iter().rev().zip(tstamp).map(|(data, ts)| ScanData::new(data, ts));
+		let scan_data = self
+			.data
+			.into_iter()
+			.rev()
+			.zip(tstamp)
+			.map(|(data, ts)| ScanData::new(data, ts));
 
 		scan_data
 	}
-
-// 			for batch in inner_buf.drain(..) {
-// 				const TO_NANOSEC: u64 = 1e9 as u64;
-// 				let tstamp = batch.timestamp;
-
-// 				let data = batch.data[..]
-// 					.iter()
-// 					.rev()
-// 					.enumerate()
-// 					.map(|(idx, sample)| {
-// 						let ts_diff = idx as u64 * TO_NANOSEC / self.ai_chan.sample_rate as u64;
-// 						let actual_tstamp = tstamp - ts_diff;
-// 						ScanData::new(*sample, actual_tstamp)
-// 					})
-// 					.rev();
-
-// 				self.buf.extend(data);
-// 			}
-
 }
 
 #[derive(Debug)]
@@ -83,6 +67,21 @@ pub struct AiChannel<SampleRate: Unsigned> {
 	_phantom_data: std::marker::PhantomData<SampleRate>,
 }
 
+pub struct AsyncAiStream<BatchSize: ArrayLength<RawScanData>> {
+	inner: UnboundedReceiver<BatchedScan<BatchSize>>,
+	sample_rate: u64,
+}
+
+impl<N: ArrayLength<RawScanData>> AsyncAiStream<N> {
+	fn get(self) -> impl Stream<Item = ScanData, Error = ()> {
+		let samp_rate = self.sample_rate;
+		self.inner
+			.map(move |batch| batch.into_scan(samp_rate))
+			.map(|scan_iter| futures::stream::iter_ok(scan_iter))
+			.flatten()
+	}
+}
+
 trait AsyncChannel<SampleRate>
 where
 	Self: Sized,
@@ -90,10 +89,13 @@ where
 	SampleRate: Unsigned,
 {
 	type BatchSize;
-	fn new(self) -> UnboundedReceiver<BatchedScan<Self::BatchSize>>;
+	fn new(self) -> AsyncAiStream<Self::BatchSize>;
 }
 
-impl<SampleRate: Unsigned> AiChannel<SampleRate> {
+impl<SampleRate> AiChannel<SampleRate>
+where
+	SampleRate: Unsigned,
+{
 	const SAMPLE_RATE: usize = SampleRate::USIZE;
 	const NIDAQ_INTERNAL_SAMPLE_BUFFER_SIZE: u64 = 10 * Self::SAMPLE_RATE as u64;
 
@@ -120,95 +122,10 @@ impl<SampleRate: Unsigned> AiChannel<SampleRate> {
 		ai_channel
 	}
 
-	// pub fn make_async(self) {
-	// 	// let async_ai_chan_inner = Arc::new(AsyncAiChanInternal::new());
-
-	// 	// let mut async_ai_chan = AsyncAiChannel {
-	// 	// 	ai_chan: self,
-	// 	// 	inner: async_ai_chan_inner,
-	// 	// 	buf: VecDeque::new(),
-	// 	// };
-
-	// 	// let inner_weak_ptr = Arc::downgrade(&async_ai_chan.inner);
-
-	// 	// unsafe {
-	// 	// 	async_ai_chan.ai_chan.task_handle.register_read_callback(
-	// 	// 		BATCH_SIZE as u32,
-	// 	// 		async_read_callback_impl,
-	// 	// 		inner_weak_ptr,
-	// 	// 	);
-
-	// 	// 	// We dont care about the done callback
-	// 	// 	async_ai_chan
-	// 	// 		.ai_chan
-	// 	// 		.task_handle
-	// 	// 		.register_done_callback(|_| (), ());
-	// 	// }
-
-	// 	// async_ai_chan.ai_chan.task_handle.launch();
-
-	// 	// async_ai_chan
-
-	// 	let (snd, recv) = mpsc::unbounded();
-
-	// 	type BatchSize = typenum::Quot<SampleRate, DaqCallbackFreq>;
-
-	// 	unsafe {
-	// 		self.task_handle.register_read_callback(
-	// 			Self::BATCH_SIZE as u32,
-	// 			async_read_callback_impl,
-	// 			snd,
-	// 		);
-	// 		// We dont care about the done callback
-	// 		self.task_handle.register_done_callback(|_| (), ());
-	// 	}
-
-	// 	self.task_handle.launch();
-	// }
+	pub fn make_async(self) -> impl Stream<Item = ScanData, Error = ()> {
+		AsyncChannel::new(self).get()
+	}
 }
-
-// impl Stream for AsyncAiChannel {
-// 	type Item = ScanData;
-// 	type Error = ();
-
-// 	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-// 		loop {
-// 			if !self.buf.is_empty() {
-// 				return Ok(Async::Ready(self.buf.pop_front()));
-// 			}
-
-// 			let inner_buf = &mut *self.inner.buf.lock();
-
-// 			if inner_buf.is_empty() {
-// 				break;
-// 			}
-
-// 			for batch in inner_buf.drain(..) {
-// 				const TO_NANOSEC: u64 = 1e9 as u64;
-// 				let tstamp = batch.timestamp;
-
-// 				let data = batch.data[..]
-// 					.iter()
-// 					.rev()
-// 					.enumerate()
-// 					.map(|(idx, sample)| {
-// 						let ts_diff = idx as u64 * TO_NANOSEC / self.ai_chan.sample_rate as u64;
-// 						let actual_tstamp = tstamp - ts_diff;
-// 						ScanData::new(*sample, actual_tstamp)
-// 					})
-// 					.rev();
-
-// 				self.buf.extend(data);
-// 			}
-// 		}
-
-// 		if !self.inner.runtime_initialized() {
-// 			self.inner.initialize_runtime(futures::task::current());
-// 		}
-
-// 		Ok(Async::NotReady)
-// 	}
-// }
 
 use std::ops::Div;
 use typenum::Quot;
@@ -218,14 +135,14 @@ where
 	SampleRate: Unsigned + Div<DaqCallbackFreq>,
 	Quot<SampleRate, DaqCallbackFreq>: ArrayLength<RawScanData>,
 {
-	type BatchSize = typenum::Quot<SampleRate, DaqCallbackFreq>;
+	type BatchSize = Quot<SampleRate, DaqCallbackFreq>;
 
-	fn new(mut self) -> UnboundedReceiver<BatchedScan<Self::BatchSize>> {
+	fn new(mut self) -> AsyncAiStream<Self::BatchSize> {
 		let (snd, recv) = mpsc::unbounded();
 
 		unsafe {
 			self.task_handle.register_read_callback(
-				Self::BATCH_SIZE as u32,
+				Self::BatchSize::U32,
 				async_read_callback_impl::<Self::BatchSize>,
 				snd,
 			);
@@ -235,7 +152,10 @@ where
 
 		self.task_handle.launch();
 
-		recv
+		AsyncAiStream {
+			inner: recv,
+			sample_rate: SampleRate::U64,
+		}
 	}
 }
 
