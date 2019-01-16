@@ -239,10 +239,11 @@ fn main() {
 	// let mut enc_file = std::io::BufWriter::with_capacity(1024 * 1024, std::fs::File::create("enc_data.csv").unwrap());
 	// let mut adc_file = std::io::BufWriter::with_capacity(1024 * 1024, std::fs::File::create("adc_data.csv").unwrap());
 
-	// let encoder_chan = CiEncoderChannel::new(SAMPLING_FREQ).make_async();
-	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
+	// let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE as f64);
+	// let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
+	let ai_chan = AiChannel::new("", SAMPLING_RATE);
 
-	// let encoder_stream = encoder_chan.for_each(move |val| {
+	// let encoder_stream = encoder_chan.make_async().for_each(move |val| {
 	// 	// let _ = writeln!(&mut enc_file, "{},{}", val.timestamp, val.pos);
 	// 	println!("{},{}", val.timestamp, val.pos);
 	// 	Ok(())
@@ -254,9 +255,12 @@ fn main() {
 		Ok(())
 	});
 
+	// let data_stream = encoder_stream.select(ai_stream).map(|_| ()).map_err(|_| ());
+	let data_stream = ai_stream;
+
 	println!("Started data collection");
 
-	tokio::run(ai_stream);
+	tokio::run(data_stream);
 
 	println!("End of program.");
 }

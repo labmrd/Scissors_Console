@@ -4,8 +4,9 @@ use crate::nidaqmx::task_handle::{RawTaskHandle, TaskHandle};
 use std::ptr;
 
 use futures::{
+	Poll,
 	stream::Stream,
-	sync::mpsc::{self, UnboundedSender},
+	sync::mpsc::{self, UnboundedSender, UnboundedReceiver},
 };
 
 const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
@@ -37,7 +38,8 @@ impl BatchedScan {
 		let base_ts = self.timestamp;
 		let data_len = self.data.len() as u32;
 
-		let tstamp = (1..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
+		let tstamp =
+			(1..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
 
 		let scan_data = self
 			.data
@@ -64,11 +66,6 @@ impl ScanData {
 			timestamp,
 		}
 	}
-}
-
-struct ScanDataChannel {
-	inner: UnboundedSender<ScanData>,
-	sample_rate: usize
 }
 
 pub struct AiChannel {
@@ -105,25 +102,46 @@ impl AiChannel {
 		);
 	}
 
-	pub fn make_async(mut self) -> impl Stream<Item = ScanData, Error = ()> {
+	pub fn make_async(mut self) -> AsyncAiChannel {
 		let (snd, recv) = mpsc::unbounded();
 
+		let internal = AsyncAiChanInternal {
+			sender: snd,
+			sample_rate: self.sample_rate,
+		};
+
 		unsafe {
-			self.task_handle.register_read_callback(
-				self.batch_size as u32,
-				async_read_callback_impl,
-				ScanDataChannel {
-					inner: snd,
-					sample_rate: self.sample_rate
-				},
-			);
+			self.task_handle
+				.register_read_callback(self.batch_size as u32, async_read_callback_impl, internal);
 			// We dont care about the done callback
 			self.task_handle.register_done_callback(|_| (), ());
 		}
 
 		self.task_handle.launch();
 
-		recv
+		AsyncAiChannel {
+			ai_chan: self,
+			recv
+		}
+	}
+}
+
+struct AsyncAiChanInternal {
+	sender: UnboundedSender<ScanData>,
+	sample_rate: usize,
+}
+
+pub struct AsyncAiChannel {
+	ai_chan: AiChannel,
+	recv: UnboundedReceiver<ScanData>,
+}
+
+impl Stream for AsyncAiChannel {
+	type Item = ScanData;
+	type Error = ();
+
+	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+		self.recv.poll()
 	}
 }
 
@@ -161,12 +179,11 @@ unsafe fn read_analog_f64(
 }
 
 fn async_read_callback_impl(
-	scan_chan: &mut ScanDataChannel,
+	scan_chan: &mut AsyncAiChanInternal,
 	task_handle: &mut RawTaskHandle,
 	n_samps: u32,
 ) -> Result<(), ()> {
-
-	let send_channel = &scan_chan.inner;
+	let send_channel = &scan_chan.sender;
 	let sample_rate = scan_chan.sample_rate;
 
 	let batch = unsafe { read_analog_f64(task_handle, n_samps) }
