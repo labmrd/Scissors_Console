@@ -1,7 +1,7 @@
 #![feature(try_from)]
 
-use futures::sync as f_sync;
 use futures::future::Future;
+use futures::sync as f_sync;
 use tokio::codec::{Framed, LinesCodec};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::prelude::*;
@@ -15,19 +15,85 @@ use parking_lot::Mutex;
 use log::{Level, Metadata, Record};
 
 use events::Event;
-use nidaqmx::{AiChannel, CiEncoderChannel, EncoderReading};
+use nidaqmx::{AiChannel, CiEncoderChannel};
 
 type SocketTxHandle = f_sync::mpsc::UnboundedSender<events::Server>;
 
-struct StopCollectionHandle {
-	sender: f_sync::oneshot::Sender<()>,
+struct DataCollectionHandle {
+	data_tx: SocketTxHandle,
+	stop_handle: Option<f_sync::oneshot::Sender<()>>,
 }
 
-impl StopCollectionHandle {
-	fn new<F1, F2>(data_stream1: F1, data_stream2: F2) -> Self
+impl DataCollectionHandle {
+	fn new(socket: SocketTxHandle) -> Self {
+		DataCollectionHandle {
+			data_tx: socket,
+			stop_handle: None
+		}
+	}
+
+	fn start_collection<S: AsRef<Path>>(&mut self, file: S) {
+		const CAPACITY: usize = 1024 * 1024;
+
+		use std::fs::File;
+		use std::io::BufWriter;
+
+		let fpath = S::as_ref(&file);
+
+		std::fs::create_dir_all(fpath).expect("couldn't create directory");
+
+		let mut enc_fname = PathBuf::from(fpath);
+		enc_fname.push("enc");
+		enc_fname.set_extension("csv");
+
+		let mut adc_fname = PathBuf::from(fpath);
+		adc_fname.push("adc");
+		adc_fname.set_extension("csv");
+
+		let mut enc_file = BufWriter::with_capacity(
+			CAPACITY,
+			File::create(enc_fname).expect("couldn't create file"),
+		);
+		let mut adc_file = BufWriter::with_capacity(
+			CAPACITY,
+			File::create(adc_fname).expect("couldn't create file"),
+		);
+
+		let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
+		let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
+
+		let encoder_stream = encoder_chan
+			.make_async()
+			.map(move |data| writeln!(enc_file, "{}", data))
+			.for_each(|res| res.map_err(|_| ()));
+
+		let ai_stream = ai_chan
+			.make_async()
+			.map(move |data| writeln!(adc_file, "{}", data))
+			.for_each(|res| res.map_err(|_| ()));
+
+		self.join_streams(encoder_stream, ai_stream);
+	}
+
+	fn dispatch_event(&mut self, ev: events::Client) {
+		match ev {
+			events::Client::StartPressed(file) => {
+				if self.stop_handle.is_none() {
+					log::info!("Recieved Start Command, file: {}", file);
+					self.start_collection(file);
+				}
+			}
+			events::Client::StopPressed => {
+				let _ = self.stop_collection();
+				log::info!("Recieved Stop Command");
+			}
+		};
+	}
+
+	fn join_streams<F1, F2>(&mut self, data_stream1: F1, data_stream2: F2)
 	where
 		F1: Future<Item = (), Error = ()> + Send + 'static,
-		F2: Future<Item = (), Error = ()> + Send + 'static
+		F2: Future<Item = (), Error = ()> + Send + 'static,
 	{
 		let (sender, recv) = f_sync::oneshot::channel();
 
@@ -41,11 +107,12 @@ impl StopCollectionHandle {
 
 		tokio::spawn(data_stream);
 
-		StopCollectionHandle { sender }
+		self.stop_handle = Some(sender);
 	}
 
-	fn stop_collection(self) {
-		self.sender.send(());
+	fn stop_collection(&mut self) -> Result<(), ()> {
+		let stop_handle = self.stop_handle.take().ok_or(())?;
+		stop_handle.send(()).map_err(|_| ())
 	}
 }
 
@@ -108,72 +175,72 @@ const ADDR: ([u8; 4], u16) = (LOCALHOST, PORT);
 
 static LOGGER: GuiLogger = GuiLogger::new();
 
-fn start_collection<S: AsRef<Path>>(file: S) -> StopCollectionHandle {
-	const CAPACITY: usize = 1024 * 1024;
+// fn start_collection<S: AsRef<Path>>(file: S) -> DataCollectionHandle {
+// 	const CAPACITY: usize = 1024 * 1024;
 
-	use std::fs::File;
-	use std::io::BufWriter;
+// 	use std::fs::File;
+// 	use std::io::BufWriter;
 
-	let fpath = S::as_ref(&file);
+// 	let fpath = S::as_ref(&file);
 
-	std::fs::create_dir_all(fpath).expect("couldn't create directory");
+// 	std::fs::create_dir_all(fpath).expect("couldn't create directory");
 
-	let mut enc_fname = PathBuf::from(fpath);
-	enc_fname.push("enc");
-	enc_fname.set_extension("csv");
+// 	let mut enc_fname = PathBuf::from(fpath);
+// 	enc_fname.push("enc");
+// 	enc_fname.set_extension("csv");
 
-	let mut adc_fname = PathBuf::from(fpath);
-	adc_fname.push("adc");
-	adc_fname.set_extension("csv");
+// 	let mut adc_fname = PathBuf::from(fpath);
+// 	adc_fname.push("adc");
+// 	adc_fname.set_extension("csv");
 
-	let mut enc_file = BufWriter::with_capacity(
-		CAPACITY,
-		File::create(enc_fname).expect("couldn't create file"),
-	);
-	let mut adc_file = BufWriter::with_capacity(
-		CAPACITY,
-		File::create(adc_fname).expect("couldn't create file"),
-	);
+// 	let mut enc_file = BufWriter::with_capacity(
+// 		CAPACITY,
+// 		File::create(enc_fname).expect("couldn't create file"),
+// 	);
+// 	let mut adc_file = BufWriter::with_capacity(
+// 		CAPACITY,
+// 		File::create(adc_fname).expect("couldn't create file"),
+// 	);
 
-	let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
-	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
+// 	let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
+// 	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
 
-	let encoder_stream = encoder_chan
-		.make_async()
-		.map(move |data| writeln!(enc_file, "{}", data))
-		.for_each(|res| res.map_err(|_| ()));
+// 	let encoder_stream = encoder_chan
+// 		.make_async()
+// 		.map(move |data| writeln!(enc_file, "{}", data))
+// 		.for_each(|res| res.map_err(|_| ()));
 
-	let ai_stream = ai_chan
-		.make_async()
-		.map(move |data| writeln!(adc_file, "{}", data))
-		.for_each(|res| res.map_err(|_| ()));
+// 	let ai_stream = ai_chan
+// 		.make_async()
+// 		.map(move |data| writeln!(adc_file, "{}", data))
+// 		.for_each(|res| res.map_err(|_| ()));
 
-	let stop_handle = StopCollectionHandle::new(encoder_stream, ai_stream);
+// 	let stop_handle = DataCollectionHandle::new(encoder_stream, ai_stream);
 
-	stop_handle
-}
+// 	stop_handle
+// }
 
-fn dispatch_event(ev: events::Client) {
-	static STOP_HANDLE: Mutex<Option<StopCollectionHandle>> = Mutex::new(None);
+// fn dispatch_event(ev: events::Client) {
+// 	static STOP_HANDLE: Mutex<Option<DataCollectionHandle>> = Mutex::new(None);
 
-	let mut stop_handle_lock = STOP_HANDLE.lock();
-	let stop_handle = &mut *stop_handle_lock;
+// 	let mut stop_handle_lock = STOP_HANDLE.lock();
+// 	let stop_handle = &mut *stop_handle_lock;
 
-	match ev {
-		events::Client::StartPressed(file) => {
-			if stop_handle.is_none() {
-				log::info!("Recieved Start Command, file: {}", file);
-				*stop_handle = Some(start_collection(file));
-			}
-		}
-		events::Client::StopPressed => {
-			if let Some(stop_handle) = stop_handle.take() {
-				let _ = stop_handle.send(());
-				log::info!("Recieved Stop Command");
-			}
-		}
-	};
-}
+// 	match ev {
+// 		events::Client::StartPressed(file) => {
+// 			if stop_handle.is_none() {
+// 				log::info!("Recieved Start Command, file: {}", file);
+// 				*stop_handle = Some(start_collection(file));
+// 			}
+// 		}
+// 		events::Client::StopPressed => {
+// 			if let Some(stop_handle) = stop_handle.take() {
+// 				let _ = stop_handle.stop_collection();
+// 				log::info!("Recieved Stop Command");
+// 			}
+// 		}
+// 	};
+// }
 
 fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 	let framed = Framed::new(tcp_stream, LinesCodec::new());
@@ -182,6 +249,9 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 	let (tx, rx) = futures::sync::mpsc::unbounded::<events::Server>();
 
 	let log_tx = tx.clone();
+	let data_tx = tx.clone();
+
+	let mut collection_handle = DataCollectionHandle::new(data_tx);
 
 	LOGGER.register_socket(log_tx);
 
@@ -199,7 +269,7 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 				Err(_) => return Ok(()),
 			};
 
-			dispatch_event(uie);
+			collection_handle.dispatch_event(uie);
 
 			Ok(())
 		})
