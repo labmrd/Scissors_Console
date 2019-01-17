@@ -19,6 +19,62 @@ use nidaqmx::{AiChannel, CiEncoderChannel};
 
 type SocketTxHandle = f_sync::mpsc::UnboundedSender<events::Server>;
 
+const SAMPLING_RATE: usize = 1000;
+const DATA_SEND_RATE: usize = 10; // hz
+const COUNT_MOD: usize = SAMPLING_RATE / DATA_SEND_RATE;
+
+struct Bifurcate<S, F>
+where
+	S: Stream,
+	F: Fn(&S::Item),
+{
+	inner: S,
+	state: usize,
+	n: usize,
+	f: F,
+}
+
+impl<S, F> Stream for Bifurcate<S, F>
+where
+	S: Stream,
+	F: Fn(&S::Item),
+{
+
+	type Item = S::Item;
+	type Error = S::Error;
+
+	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+
+		let item = futures::try_ready!(self.inner.poll());
+
+		if self.state % self.n == 0 {
+			item.as_ref().map_or((), &self.f);
+		}
+
+		self.state += 1;
+
+		Ok(Async::Ready(item))
+	}
+
+}
+
+trait StreamExt: Stream {
+	fn bifurcate<F>(self, n: usize, f: F) -> Bifurcate<Self, F>
+	where
+		Self: Sized,
+		F: Fn(&Self::Item),
+	{
+		Bifurcate {
+			inner: self,
+			state: 0,
+			n,
+			f,
+		}
+	}
+}
+
+impl<T: Stream> StreamExt for T {}
+
 struct DataCollectionHandle {
 	data_tx: SocketTxHandle,
 	stop_handle: Option<f_sync::oneshot::Sender<()>>,
@@ -28,7 +84,7 @@ impl DataCollectionHandle {
 	fn new(socket: SocketTxHandle) -> Self {
 		DataCollectionHandle {
 			data_tx: socket,
-			stop_handle: None
+			stop_handle: None,
 		}
 	}
 
@@ -67,8 +123,13 @@ impl DataCollectionHandle {
 			.map(move |data| writeln!(enc_file, "{}", data))
 			.for_each(|res| res.map_err(|_| ()));
 
+		let tx = self.data_tx.clone();
 		let ai_stream = ai_chan
 			.make_async()
+			.bifurcate(COUNT_MOD, move |data| {
+				let msg = events::Server::DataPoint(data.timestamp as f64, data.data[0]);
+				let _ = tx.unbounded_send(msg);
+			})
 			.map(move |data| writeln!(adc_file, "{}", data))
 			.for_each(|res| res.map_err(|_| ()));
 
@@ -115,8 +176,6 @@ impl DataCollectionHandle {
 		stop_handle.send(()).map_err(|_| ())
 	}
 }
-
-const SAMPLING_RATE: usize = 1000;
 
 struct GuiLogger {
 	connection: Mutex<Option<SocketTxHandle>>,
