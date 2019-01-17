@@ -278,16 +278,20 @@ impl io::Write for NidaqServerConnection {
 
 fn launch_server() {
 	#[cfg(debug_assertions)]
-	static PROG_PATH: &str = "/tmp/cargo/debug/server";
+	let prog_path = "/tmp/cargo/debug/server";
 	#[cfg(not(debug_assertions))]
-	static PROG_PATH: &str = "/tmp/cargo/release/server";
+	let prog_path = js! {
+		const path = require("path");
+		let dir = path.join(__dirname, "../bin/server");
+		return dir;
+	};
 
 	let cb = || log::error!("Server disconnected");
 
 	js! {
 
 		const { spawn } = require("child_process");
-		const server = spawn(@{PROG_PATH});
+		const server = spawn(@{prog_path});
 
 		server.stdout.on("data", (data) => {
 			console.log("stdout: ", data.toString());
