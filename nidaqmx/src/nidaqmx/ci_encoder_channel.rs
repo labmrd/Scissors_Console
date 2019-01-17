@@ -5,8 +5,7 @@ use crate::nidaqmx::{
 	DAQ_CALLBACK_FREQ, EMPTY_CSTRING, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
 };
 
-use std::ffi::CString;
-use std::ptr;
+use std::{ptr, fmt, ffi::CString};
 
 use futures::{
 	stream::Stream,
@@ -31,6 +30,12 @@ pub struct EncoderReading {
 impl EncoderReading {
 	fn new(timestamp: u64, pos: EncoderTick) -> Self {
 		Self { timestamp, pos }
+	}
+}
+
+impl fmt::Display for EncoderReading {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{},{}", self.timestamp, self.pos)
 	}
 }
 

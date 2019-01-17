@@ -4,7 +4,7 @@ use crate::nidaqmx::{
 	DAQ_CALLBACK_FREQ, SAMPLE_TIMEOUT_SECS, SCAN_WARNING
 };
 
-use std::ptr;
+use std::{ptr, fmt};
 
 use futures::{
 	stream::Stream,
@@ -66,6 +66,12 @@ impl ScanData {
 			data: data,
 			timestamp,
 		}
+	}
+}
+
+impl fmt::Display for ScanData {
+	fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+		write!(f, "{},{},{}", self.timestamp, self.data[0], self.data[1])
 	}
 }
 
