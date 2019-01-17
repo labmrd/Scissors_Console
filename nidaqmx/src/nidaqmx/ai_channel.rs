@@ -1,18 +1,19 @@
-use crate::nidaqmx::get_time_steady_nanoseconds;
-use crate::nidaqmx::task_handle::{RawTaskHandle, TaskHandle};
+use crate::nidaqmx::{
+	get_steady_time_nanoseconds,
+	task_handle::{RawTaskHandle, TaskHandle},
+	DAQ_CALLBACK_FREQ, SAMPLE_TIMEOUT_SECS, SCAN_WARNING
+};
 
 use std::ptr;
 
 use futures::{
-	Poll,
 	stream::Stream,
-	sync::mpsc::{self, UnboundedSender, UnboundedReceiver},
+	sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+	Poll,
 };
 
-const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
 const NUM_CHANNELS: usize = 2;
 const VOLTAGE_SPAN: f64 = 10.0;
-const DAQ_CALLBACK_FREQ: usize = 100; // hz
 
 type RawScanData = [f64; NUM_CHANNELS];
 
@@ -22,7 +23,7 @@ struct BatchedScan {
 }
 
 impl BatchedScan {
-	pub unsafe fn new_uninit(batch_size: usize) -> Self {
+	unsafe fn new_uninit(batch_size: usize) -> Self {
 		let boxed: Box<[RawScanData]> =
 			(0..batch_size).map(|_| std::mem::uninitialized()).collect();
 
@@ -111,8 +112,11 @@ impl AiChannel {
 		};
 
 		unsafe {
-			self.task_handle
-				.register_read_callback(self.batch_size as u32, async_read_callback_impl, internal);
+			self.task_handle.register_read_callback(
+				self.batch_size as u32,
+				async_read_callback_impl,
+				internal,
+			);
 			// We dont care about the done callback
 			self.task_handle.register_done_callback(|_| (), ());
 		}
@@ -120,8 +124,8 @@ impl AiChannel {
 		self.task_handle.launch();
 
 		AsyncAiChannel {
-			ai_chan: self,
-			recv
+			_ai_chan: self,
+			recv,
 		}
 	}
 }
@@ -132,7 +136,7 @@ struct AsyncAiChanInternal {
 }
 
 pub struct AsyncAiChannel {
-	ai_chan: AiChannel,
+	_ai_chan: AiChannel,
 	recv: UnboundedReceiver<ScanData>,
 }
 
@@ -149,13 +153,12 @@ unsafe fn read_analog_f64(
 	task_handle: &mut RawTaskHandle,
 	n_samps: u32,
 ) -> Result<BatchedScan, i32> {
-	const SCAN_WARNING: i32 = 1;
 
 	let mut samps_read = 0i32;
 	let samps_read_ptr = &mut samps_read as *mut _;
 
 	let mut scan = BatchedScan::new_uninit(n_samps as usize);
-	scan.timestamp = get_time_steady_nanoseconds();
+	scan.timestamp = get_steady_time_nanoseconds();
 
 	let buf_len = (scan.data.len() * NUM_CHANNELS) as u32;
 	let buf_ptr = scan.data.as_mut_ptr() as *mut _ as *mut f64;

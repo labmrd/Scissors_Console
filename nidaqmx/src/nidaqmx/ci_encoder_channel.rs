@@ -1,51 +1,98 @@
-use crate::nidaqmx::co_channel::*;
-use crate::nidaqmx::task_handle::{RawTaskHandle, TaskHandle};
-use crate::nidaqmx::{counter_generate_chan_desc, EMPTY_CSTRING};
+use crate::nidaqmx::{
+	co_channel::*,
+	counter_generate_chan_desc, get_steady_time_nanoseconds,
+	task_handle::{RawTaskHandle, TaskHandle},
+	DAQ_CALLBACK_FREQ, EMPTY_CSTRING, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
+};
 
-use std::collections::VecDeque;
 use std::ffi::CString;
 use std::ptr;
-use std::sync::{Arc, Weak as ArcWeak};
 
-use futures::{Async, Poll, Stream};
-
-use parking_lot::Mutex;
+use futures::{
+	stream::Stream,
+	sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+	Poll,
+};
 
 const CLK_SRC_OUTPUT_PFI_ID: u8 = 13;
 const CLK_SRC_COUNTER_ID: u8 = 1;
 const ENCODER_COUNTER_ID: u8 = 0;
 
-const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
-const BATCH_SIZE: usize = 1000;
 const DUTY_CYCLE: f64 = 0.5;
 
-type RawScanData = [i32; BATCH_SIZE];
+pub type EncoderTick = i32;
+type RawScanData = Box<[EncoderTick]>;
+
+pub struct EncoderReading {
+	pub timestamp: u64,
+	pub pos: EncoderTick,
+}
+
+impl EncoderReading {
+	fn new(timestamp: u64, pos: EncoderTick) -> Self {
+		Self { timestamp, pos }
+	}
+}
 
 struct BatchedScan {
 	data: RawScanData,
 	timestamp: u64,
 }
 
-pub struct EncoderReading {
-	pub timestamp: u64,
-	pub pos: i32,
+impl BatchedScan {
+	unsafe fn new_uninit(batch_size: usize) -> Self {
+		use std::mem::uninitialized;
+
+		let boxed: RawScanData = (0..batch_size).map(|_| uninitialized()).collect();
+
+		Self {
+			data: boxed,
+			timestamp: 0,
+		}
+	}
+
+	fn into_encoder_reading_iter<'a>(
+		&'a self,
+		sample_rate: usize,
+	) -> impl Iterator<Item = EncoderReading> + 'a {
+		const TO_NANOSEC: u64 = 1e9 as u64;
+
+		let base_ts = self.timestamp;
+		let data_len = self.data.len() as u32;
+
+		let tstamp =
+			(1..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
+
+		let scan_data = self
+			.data
+			.iter()
+			.rev()
+			.zip(tstamp)
+			.map(|(pos, ts)| EncoderReading::new(ts, *pos))
+			.rev();
+
+		scan_data
+	}
 }
 
 pub struct CiEncoderChannel {
 	task_handle: TaskHandle,
 	_co_channel: CoFreqChannel,
-	sample_rate: f64,
+	sample_rate: usize,
+	batch_size: usize,
 }
 
 impl CiEncoderChannel {
-	pub fn new(sample_rate: f64) -> Self {
+	pub fn new(sample_rate: usize) -> Self {
 		let task_handle = TaskHandle::new();
-		let _co_channel = CoFreqChannel::new(CLK_SRC_COUNTER_ID, sample_rate, DUTY_CYCLE);
+		let _co_channel = CoFreqChannel::new(CLK_SRC_COUNTER_ID, sample_rate as f64, DUTY_CYCLE);
+		let batch_size = 10 * sample_rate;
 
 		let mut ci_encoder_channel = CiEncoderChannel {
 			task_handle,
 			_co_channel,
 			sample_rate,
+			batch_size,
 		};
 
 		ci_encoder_channel.setup();
@@ -53,41 +100,41 @@ impl CiEncoderChannel {
 		ci_encoder_channel
 	}
 
-	pub fn make_async(self) -> AsyncCiEncoderChannel {
-		let async_internal = AsyncEncoderChanInternal {
-			buf: Mutex::new(VecDeque::new()),
-			runtime_handle: Mutex::new(None),
-		};
+	// pub fn make_async(self) -> AsyncCiEncoderChannel {
+	// 	let async_internal = AsyncEncoderChanInternal {
+	// 		buf: Mutex::new(VecDeque::new()),
+	// 		runtime_handle: Mutex::new(None),
+	// 	};
 
-		let mut async_encoder = AsyncCiEncoderChannel {
-			encoder_chan: self,
-			inner: Arc::new(async_internal),
-			buf: VecDeque::new(),
-		};
+	// 	let mut async_encoder = AsyncCiEncoderChannel {
+	// 		encoder_chan: self,
+	// 		inner: Arc::new(async_internal),
+	// 		buf: VecDeque::new(),
+	// 	};
 
-		let inner_weak_ptr = Arc::downgrade(&async_encoder.inner);
+	// 	let inner_weak_ptr = Arc::downgrade(&async_encoder.inner);
 
-		unsafe {
-			async_encoder
-				.encoder_chan
-				.task_handle
-				.register_read_callback(
-					BATCH_SIZE as u32,
-					async_read_callback_impl,
-					inner_weak_ptr,
-				);
+	// 	unsafe {
+	// 		async_encoder
+	// 			.encoder_chan
+	// 			.task_handle
+	// 			.register_read_callback(
+	// 				BATCH_SIZE as u32,
+	// 				async_read_callback_impl,
+	// 				inner_weak_ptr,
+	// 			);
 
-			// Don't care about the done callback
-			async_encoder
-				.encoder_chan
-				.task_handle
-				.register_done_callback(|_| (), ());
-		}
+	// 		// Don't care about the done callback
+	// 		async_encoder
+	// 			.encoder_chan
+	// 			.task_handle
+	// 			.register_done_callback(|_| (), ());
+	// 	}
 
-		async_encoder.encoder_chan.task_handle.launch();
+	// 	async_encoder.encoder_chan.task_handle.launch();
 
-		async_encoder
-	}
+	// 	async_encoder
+	// }
 
 	fn setup(&mut self) {
 		self.create_channel(ENCODER_COUNTER_ID);
@@ -95,8 +142,8 @@ impl CiEncoderChannel {
 		let clk_src = generate_clock_src_desc(CLK_SRC_OUTPUT_PFI_ID);
 		self.task_handle.configure_sample_clock(
 			&clk_src,
-			self.sample_rate,
-			self.sample_rate as u64,
+			self.sample_rate as f64,
+			self.batch_size as u64,
 		);
 	}
 
@@ -130,88 +177,67 @@ impl CiEncoderChannel {
 }
 
 struct AsyncEncoderChanInternal {
-	buf: Mutex<VecDeque<BatchedScan>>,
-	runtime_handle: Mutex<Option<futures::task::Task>>,
+	sender: UnboundedSender<EncoderReading>,
+	sample_rate: usize,
 }
 
-impl AsyncEncoderChanInternal {
-	pub fn runtime_initialized(&self) -> bool {
-		self.runtime_handle.lock().is_some()
-	}
-
-	pub fn initialize_runtime(&self, runtime: futures::task::Task) {
-		let mut runtime_handle = self.runtime_handle.lock();
-		*runtime_handle = Some(runtime);
-	}
-
-	pub fn notify_data_ready(&self) -> Result<(), ()> {
-		self.runtime_handle
-			.try_lock() // try to acquire mutex
-			.ok_or(())?
-			.as_ref()
-			.ok_or(())? // try to acquire handle
-			.notify();
-		Ok(())
-	}
-}
-
-pub struct AsyncCiEncoderChannel {
+pub struct AsyncEncoderChannel {
 	encoder_chan: CiEncoderChannel,
-	inner: Arc<AsyncEncoderChanInternal>,
-	buf: VecDeque<EncoderReading>,
+	recv: UnboundedReceiver<EncoderReading>,
 }
 
-impl Stream for AsyncCiEncoderChannel {
-	type Item = EncoderReading;
-	type Error = ();
+// impl Stream for AsyncCiEncoderChannel {
+// 	type Item = EncoderReading;
+// 	type Error = ();
 
-	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+// 	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+// 		loop {
+// 			if !self.buf.is_empty() {
+// 				return Ok(Async::Ready(self.buf.pop_front()));
+// 			}
 
-		loop {
-			if !self.buf.is_empty() {
-				return Ok(Async::Ready(self.buf.pop_front()));
-			}
+// 			let mut inner_buf = match self.inner.buf.try_lock() {
+// 				Some(inner) => inner,
+// 				None => {
+// 					futures::task::current().notify();
+// 					return Ok(Async::NotReady);
+// 				}
+// 			};
 
-			let mut inner_buf = match self.inner.buf.try_lock() {
-				Some(inner) => inner,
-				None => {
-					futures::task::current().notify();
-					return Ok(Async::NotReady);
-				}
-			};
+// 			if inner_buf.is_empty() {
+// 				break;
+// 			}
 
-			if inner_buf.is_empty() {
-				break;
-			}
+// 			for batch in inner_buf.drain(..) {
+// 				const TO_NANOSEC: u64 = 1e9 as u64;
+// 				let tstamp = batch.timestamp;
+// 				let sample_rate = self.encoder_chan.sample_rate as u64;
 
-			for batch in inner_buf.drain(..) {
-				const TO_NANOSEC: u64 = 1e9 as u64;
-				let tstamp = batch.timestamp;
-				let sample_rate = self.encoder_chan.sample_rate as u64;
+// 				let data = batch.data[..]
+// 					.iter()
+// 					.rev()
+// 					.enumerate()
+// 					.map(|(idx, sample)| {
+// 						let ts_diff = idx as u64 * TO_NANOSEC / sample_rate;
+// 						let actual_tstamp = tstamp - ts_diff;
+// 						EncoderReading {
+// 							pos: *sample,
+// 							timestamp: actual_tstamp,
+// 						}
+// 					})
+// 					.rev();
 
-				let data = batch.data[..]
-					.iter()
-					.rev()
-					.enumerate()
-					.map(|(idx, sample)| {
-						let ts_diff = idx as u64 * TO_NANOSEC / sample_rate;
-						let actual_tstamp = tstamp - ts_diff;
-						EncoderReading { pos: *sample, timestamp: actual_tstamp }
-					})
-					.rev();
+// 				self.buf.extend(data);
+// 			}
+// 		}
 
-				self.buf.extend(data);
-			}
+// 		if !self.inner.runtime_initialized() {
+// 			self.inner.initialize_runtime(futures::task::current());
+// 		}
 
-		}
-
-		if !self.inner.runtime_initialized() {
-			self.inner.initialize_runtime(futures::task::current());
-		}
-
-		Ok(Async::NotReady)
-	}
-}
+// 		Ok(Async::NotReady)
+// 	}
+// }
 
 fn generate_clock_src_desc(pfi_id: u8) -> String {
 	let desc = format!("/Dev1/PFI{}", pfi_id);
@@ -220,16 +246,16 @@ fn generate_clock_src_desc(pfi_id: u8) -> String {
 
 unsafe fn read_digital_u32(
 	task_handle: &mut RawTaskHandle,
-	buf: &mut BatchedScan,
 	n_samps: u32,
-) -> Result<(), i32> {
+) -> Result<BatchedScan, i32> {
 	let mut samps_read = 0i32;
 	let samps_read_ptr = &mut samps_read as *mut _;
 
-	buf.timestamp = time::precise_time_ns();
+	let mut scan = BatchedScan::new_uninit(n_samps as usize);
+	scan.timestamp = get_steady_time_nanoseconds();
 
-	let buf_len = buf.data.len();
-	let buf_ptr = buf.data.as_mut_ptr() as *mut u32; // pretend the i32 is a u32
+	let buf_len = scan.data.len();
+	let buf_ptr = scan.data.as_mut_ptr() as *mut u32; // pretend the i32 is a u32
 
 	let err_code = nidaqmx_sys::DAQmxReadCounterU32(
 		task_handle.get().as_ptr(),
@@ -242,35 +268,22 @@ unsafe fn read_digital_u32(
 	);
 
 	match err_code {
-		0 if samps_read == BATCH_SIZE as i32 => Ok(()),
+		0 if samps_read == n_samps as i32 => Ok(scan),
+		0 => Err(SCAN_WARNING),
 		_ => Err(err_code),
 	}
 }
 
 fn async_read_callback_impl(
-	inner_weak_ptr: &mut ArcWeak<AsyncEncoderChanInternal>,
+	scan_chan: &mut AsyncEncoderChanInternal,
 	task_handle: &mut RawTaskHandle,
 	n_samps: u32,
 ) -> Result<(), ()> {
-	// If we can't upgrade, the task is complete
-	let async_ai_inner = inner_weak_ptr.upgrade().ok_or(())?;
+	let send_channel = &scan_chan.sender;
+	let sample_rate = scan_chan.sample_rate;
 
-	let deque = &mut *async_ai_inner.buf.lock();
-
-	deque.push_back(unsafe { std::mem::uninitialized() });
-
-	let buf = deque.back_mut().unwrap();
-
-	let read_result = unsafe { read_digital_u32(task_handle, buf, n_samps) };
-
-	// Shortcircuit if we got an error and pop off the uninitalized data
-	read_result.map_err(|err_code| {
-		task_handle.chk_err_code(err_code);
-		deque.pop_back();
-	})?;
-
-	// Try to notify the scheduler that we got data
-	let _ = async_ai_inner.notify_data_ready();
+	let batch = unsafe { read_digital_u32(task_handle, n_samps) }
+		.map_err(|err_code| task_handle.chk_err_code(err_code))?;
 
 	Ok(())
 }
