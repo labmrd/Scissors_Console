@@ -86,7 +86,7 @@ impl CiEncoderChannel {
 	pub fn new(sample_rate: usize) -> Self {
 		let task_handle = TaskHandle::new();
 		let _co_channel = CoFreqChannel::new(CLK_SRC_COUNTER_ID, sample_rate as f64, DUTY_CYCLE);
-		let batch_size = 10 * sample_rate;
+		let batch_size = sample_rate / DAQ_CALLBACK_FREQ;
 
 		let mut ci_encoder_channel = CiEncoderChannel {
 			task_handle,
@@ -100,50 +100,43 @@ impl CiEncoderChannel {
 		ci_encoder_channel
 	}
 
-	// pub fn make_async(self) -> AsyncCiEncoderChannel {
-	// 	let async_internal = AsyncEncoderChanInternal {
-	// 		buf: Mutex::new(VecDeque::new()),
-	// 		runtime_handle: Mutex::new(None),
-	// 	};
+	pub fn make_async(mut self) -> AsyncEncoderChannel {
+		let (snd, recv) = mpsc::unbounded();
 
-	// 	let mut async_encoder = AsyncCiEncoderChannel {
-	// 		encoder_chan: self,
-	// 		inner: Arc::new(async_internal),
-	// 		buf: VecDeque::new(),
-	// 	};
+		let internal = AsyncEncoderChanInternal {
+			sender: snd,
+			sample_rate: self.sample_rate,
+		};
 
-	// 	let inner_weak_ptr = Arc::downgrade(&async_encoder.inner);
+		unsafe {
+			self.task_handle.register_read_callback(
+				self.batch_size as u32,
+				async_read_callback_impl,
+				internal,
+			);
 
-	// 	unsafe {
-	// 		async_encoder
-	// 			.encoder_chan
-	// 			.task_handle
-	// 			.register_read_callback(
-	// 				BATCH_SIZE as u32,
-	// 				async_read_callback_impl,
-	// 				inner_weak_ptr,
-	// 			);
+			// Don't care about the done callback
+			self.task_handle.register_done_callback(|_| (), ());
+		}
 
-	// 		// Don't care about the done callback
-	// 		async_encoder
-	// 			.encoder_chan
-	// 			.task_handle
-	// 			.register_done_callback(|_| (), ());
-	// 	}
+		self.task_handle.launch();
 
-	// 	async_encoder.encoder_chan.task_handle.launch();
-
-	// 	async_encoder
-	// }
+		AsyncEncoderChannel {
+			_encoder_chan: self,
+			recv,
+		}
+	}
 
 	fn setup(&mut self) {
+		let internal_daqmx_buf_size = 10 * self.sample_rate as u64;
+
 		self.create_channel(ENCODER_COUNTER_ID);
 
 		let clk_src = generate_clock_src_desc(CLK_SRC_OUTPUT_PFI_ID);
 		self.task_handle.configure_sample_clock(
 			&clk_src,
 			self.sample_rate as f64,
-			self.batch_size as u64,
+			internal_daqmx_buf_size,
 		);
 	}
 
@@ -182,62 +175,18 @@ struct AsyncEncoderChanInternal {
 }
 
 pub struct AsyncEncoderChannel {
-	encoder_chan: CiEncoderChannel,
+	_encoder_chan: CiEncoderChannel,
 	recv: UnboundedReceiver<EncoderReading>,
 }
 
-// impl Stream for AsyncCiEncoderChannel {
-// 	type Item = EncoderReading;
-// 	type Error = ();
+impl Stream for AsyncEncoderChannel {
+	type Item = EncoderReading;
+	type Error = ();
 
-// 	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-// 		loop {
-// 			if !self.buf.is_empty() {
-// 				return Ok(Async::Ready(self.buf.pop_front()));
-// 			}
-
-// 			let mut inner_buf = match self.inner.buf.try_lock() {
-// 				Some(inner) => inner,
-// 				None => {
-// 					futures::task::current().notify();
-// 					return Ok(Async::NotReady);
-// 				}
-// 			};
-
-// 			if inner_buf.is_empty() {
-// 				break;
-// 			}
-
-// 			for batch in inner_buf.drain(..) {
-// 				const TO_NANOSEC: u64 = 1e9 as u64;
-// 				let tstamp = batch.timestamp;
-// 				let sample_rate = self.encoder_chan.sample_rate as u64;
-
-// 				let data = batch.data[..]
-// 					.iter()
-// 					.rev()
-// 					.enumerate()
-// 					.map(|(idx, sample)| {
-// 						let ts_diff = idx as u64 * TO_NANOSEC / sample_rate;
-// 						let actual_tstamp = tstamp - ts_diff;
-// 						EncoderReading {
-// 							pos: *sample,
-// 							timestamp: actual_tstamp,
-// 						}
-// 					})
-// 					.rev();
-
-// 				self.buf.extend(data);
-// 			}
-// 		}
-
-// 		if !self.inner.runtime_initialized() {
-// 			self.inner.initialize_runtime(futures::task::current());
-// 		}
-
-// 		Ok(Async::NotReady)
-// 	}
-// }
+	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
+		self.recv.poll()
+	}
+}
 
 fn generate_clock_src_desc(pfi_id: u8) -> String {
 	let desc = format!("/Dev1/PFI{}", pfi_id);
@@ -284,6 +233,11 @@ fn async_read_callback_impl(
 
 	let batch = unsafe { read_digital_u32(task_handle, n_samps) }
 		.map_err(|err_code| task_handle.chk_err_code(err_code))?;
+
+	batch
+		.into_encoder_reading_iter(sample_rate)
+		.try_for_each(|enc| send_channel.unbounded_send(enc))
+		.map_err(|_| ())?;
 
 	Ok(())
 }
