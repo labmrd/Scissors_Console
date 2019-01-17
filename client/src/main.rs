@@ -1,13 +1,16 @@
 #![recursion_limit = "2048"]
 #![feature(try_from)]
+#![feature(integer_atomics)]
 
 #[global_allocator]
 static ALLOC: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
 
 use std::{
-	fmt,
-	io,
-	sync::{Arc, Mutex, MutexGuard}
+	fmt, io,
+	sync::{
+		atomic::{AtomicU64, Ordering},
+		Arc, Mutex, MutexGuard,
+	},
 };
 
 use stdweb::traits::*;
@@ -27,6 +30,8 @@ use events::Event;
 
 type AppResult<T> = ::std::result::Result<T, AppError>;
 type IoResult<T> = std::io::Result<T>;
+
+static START_TIME: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Default)]
 struct LogBuf(Arc<Mutex<String>>);
@@ -272,7 +277,6 @@ impl io::Write for NidaqServerConnection {
 }
 
 fn launch_server() {
-
 	#[cfg(debug_assertions)]
 	static PROG_PATH: &str = "/tmp/cargo/debug/server";
 	#[cfg(not(debug_assertions))]
@@ -309,8 +313,99 @@ fn launch_server() {
 	}
 }
 
+#[derive(Clone)]
+struct Chart {
+	inner: stdweb::Value,
+}
+
+impl Chart {
+	fn initialize() -> Self {
+		let chart = js! {
+			var ctx = document.getElementById("diagnosticPlot");
+			var plotOptions = {
+				scales: {
+					yAxes: [{
+						scaleLabel: {
+							display: true,
+							labelString: "Force (lbf)"
+						}
+					}],
+					xAxes: [{
+						scaleLabel: {
+							display: true,
+							labelString: "Time (ms)"
+						}
+					}]
+				},
+				legend: {
+					display: true
+				},
+				tooltips: {
+					enabled: false
+				},
+				//showLines: false
+			};
+
+			var plotData = {
+				labels: [],
+				datasets: [
+					{
+						data: [],
+						borderColor: "red",
+						backgroundColor: "red",
+						label: "F",
+						fill: false
+					},
+				]
+			};
+
+			var diagnosticChart = new Chart(ctx, {
+				type: "line",
+				data: plotData,
+				options: plotOptions
+			});
+
+			return diagnosticChart;
+		};
+
+		Self { inner: chart }
+	}
+
+	fn append(&self, time: u64, force: f64) {
+
+		let start_time = match START_TIME.load(Ordering::Relaxed) {
+			0 => {
+				START_TIME.store(time, Ordering::Relaxed);
+				time
+			},
+			st => st as u64
+		};
+
+		let time = (time - start_time) as f64 / 1e6;
+
+		js! {
+			var chart = @{&self.inner};
+
+			chart.data.labels.push(@{time.round()});
+			chart.data.datasets[0].data.push(@{force});
+			chart.update();
+		}
+	}
+
+	fn clear(&self) {
+		js! {
+			var chart = @{&self.inner};
+
+			chart.data.labels = [];
+			chart.data.datasets[0].data = [];
+		}
+	}
+}
+
 fn main() -> Result<(), Box<std::error::Error>> {
 	stdweb::initialize();
+
+	let chart = Chart::initialize();
 
 	launch_server();
 
@@ -340,16 +435,22 @@ fn main() -> Result<(), Box<std::error::Error>> {
 		events::Client::StartPressed(data_path).send(&mut net_handle);
 	})?;
 
+	let chart_handle = chart.clone();
+
 	let mut net_handle = net_client.clone();
 	stop_btn.register_click_callback(move || {
 		events::Client::StopPressed.send(&mut net_handle);
+		chart_handle.clear();
+		START_TIME.store(0, Ordering::Relaxed);
 	})?;
 
-	net_client.register_data_callback(|data: String| {
-
-		events::process::<events::Server>(data.as_ref()).flatten().for_each(|ev| {
-			log::trace!("{}", ev);
-		});
+	net_client.register_data_callback(move |data: String| {
+		events::process::<events::Server>(data.as_ref())
+			.flatten()
+			.for_each(|ev| match ev {
+				events::Server::DataPoint(t, f) => chart.append(t, f),
+				_ => log::trace!("{}", ev),
+			});
 	});
 
 	clear_log_btn.register_click_callback(move || {

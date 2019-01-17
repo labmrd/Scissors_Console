@@ -63,8 +63,8 @@
 	<script src="Chart.min.js"></script>
 	<script src="client.js"></script>
 	<script>
-		const homedir = require('os').homedir();
-		document.getElementById("inputFolderPath").value = homedir + "/Documents";
+		const tmpdir = require('os').tmpdir();
+		document.getElementById("inputFolderPath").value = tmpdir;
 	</script>
 </body>
 

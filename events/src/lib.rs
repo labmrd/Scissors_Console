@@ -65,7 +65,7 @@ pub enum Server {
 	CollectionEnded,
 	Msg(String),
 	#[display(fmt = "Datapoint: {},{}", _0, _1)]
-	DataPoint(f64, f64)
+	DataPoint(u64, f64)
 }
 
 impl_try_from!(Client, Server);

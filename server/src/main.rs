@@ -127,7 +127,7 @@ impl DataCollectionHandle {
 		let ai_stream = ai_chan
 			.make_async()
 			.bifurcate(COUNT_MOD, move |data| {
-				let msg = events::Server::DataPoint(data.timestamp as f64, data.data[0]);
+				let msg = events::Server::DataPoint(data.timestamp, data.data[0]);
 				let _ = tx.unbounded_send(msg);
 			})
 			.map(move |data| writeln!(adc_file, "{}", data))
