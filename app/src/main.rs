@@ -161,8 +161,8 @@ impl UiEvent<'_> {
 	}
 
 	fn init(self) {
-		self.window.eval(include_str!("Chart.min.js"));
-		self.window.eval(include_str!("init.js"));
+		self.window.eval(include_str!("../ui/Chart.min.js"));
+		self.window.eval(include_str!("../ui/init.js"));
 
 		App::update_ui(&self.window, self.app.folder_path.to_string_lossy());
 
@@ -232,7 +232,7 @@ fn main() {
 	let win_handle = WindowHandle::clone(&app.win);
 
 	tether::builder()
-		.html(include_str!("index.html"))
+		.html(include_str!("../ui/index.html"))
 		.minimum_size(800, 600)
 		.handler(app)
 		.start();
