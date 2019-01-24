@@ -197,7 +197,11 @@ impl UiEvent<'_> {
 			self.app.folder_path.to_string_lossy()
 		);
 
-		self.app.data_collection_handle.get_or_insert_with(|| data_collection::start(file));
+		let col_handle = &mut self.app.data_collection_handle;
+
+		if col_handle.is_none() {
+			*col_handle = Some(data_collection::start(file));
+		}
 
 	}
 

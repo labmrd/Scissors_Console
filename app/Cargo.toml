@@ -1,11 +1,11 @@
 [package]
-name = "tether_test"
-version = "0.1.0"
+name = "scissors_console"
+version = "0.2.0"
 authors = ["Amer Safdari <safda004@umn.edu>"]
 edition = "2018"
 
 [dependencies]
-nidaqmx = {path = "../nidaqmx"}
+# nidaqmx = {path = "../nidaqmx"}
 
 tether = "0.2"
 log = {version = "0.4", features = ["std"]}
@@ -13,7 +13,3 @@ nfd = "0.0.4"
 parking_lot = {version = "0.7", features = ["nightly"]}
 
 futures-preview = "0.3.0-alpha.12"
-
-[profile.release]
-lto = "on"
-opt-level = 3

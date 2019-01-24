@@ -2,10 +2,10 @@ use futures::{
 	channel::oneshot,
 	executor::LocalPool,
 	future::{self, Future, FutureExt},
-	stream::StreamExt,
+	stream::{self, Stream, StreamExt},
 };
 
-use nidaqmx::{AiChannel, CiEncoderChannel};
+// use nidaqmx::{AiChannel, CiEncoderChannel};
 
 use std::{
 	fs::{self, File},
@@ -19,26 +19,32 @@ const DATA_SEND_RATE: usize = 10; // hz
 const UPDATE_UI_SAMP_COUNT: usize = SAMPLING_RATE / DATA_SEND_RATE;
 
 pub fn start(fpath: &str) -> DataCollectionHandle {
-	
-	fs::create_dir_all(fpath).expect("Failed to create directory");
+	// fs::create_dir_all(fpath).expect("Failed to create directory");
 
-	let mut adc_file = open_buffered_file(fpath, "adc");
-	let mut enc_file = open_buffered_file(fpath, "enc");
+	// let mut adc_file = open_buffered_file(fpath, "adc");
+	// let mut enc_file = open_buffered_file(fpath, "enc");
 
-	let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
-	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
+	// let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
+	// let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
 
-	let encoder_stream = encoder_chan
-		.make_async()
-		.map(move |data| writeln!(enc_file, "{}", data).expect("Failed to write data"))
+	// let encoder_stream = encoder_chan
+	// 	.make_async()
+	// 	.map(move |data| writeln!(enc_file, "{}", data).expect("Failed to write data"))
+	// 	.for_each(|_| future::ready(()));
+
+	// let ai_stream = ai_chan
+	// 	.make_async()
+	// 	.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
+	// 	.for_each(|_| future::ready(()));
+
+	// let data_stream = encoder_stream.join(ai_stream).map(|_| ());
+
+	let data_stream = futures::stream::iter(1..)
+		.map(|idx| {
+			println!("did the thing: {}", idx);
+			thread::sleep(std::time::Duration::from_secs(1));
+		})
 		.for_each(|_| future::ready(()));
-
-	let ai_stream = ai_chan
-		.make_async()
-		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
-		.for_each(|_| future::ready(()));
-
-	let data_stream = encoder_stream.join(ai_stream).map(|_| ());
 
 	DataCollectionHandle::start(data_stream)
 }
