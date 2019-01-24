@@ -1,8 +1,9 @@
 use futures::{
-	channel::oneshot,
 	executor::LocalPool,
 	future::{self, Future, FutureExt},
-	stream::{self, Stream, StreamExt},
+	stream::{Stream, StreamExt},
+	task::LocalWaker,
+	Poll,
 };
 
 use nidaqmx::{AiChannel, CiEncoderChannel};
@@ -10,15 +11,19 @@ use nidaqmx::{AiChannel, CiEncoderChannel};
 use std::{
 	fs::{self, File},
 	io::{BufWriter, Write},
+	marker::Unpin,
 	path::PathBuf,
+	pin::Pin,
 	thread,
 };
+
+use crate::ui;
 
 const SAMPLING_RATE: usize = 1000;
 const DATA_SEND_RATE: usize = 10; // hz
 const UPDATE_UI_SAMP_COUNT: usize = SAMPLING_RATE / DATA_SEND_RATE;
 
-pub fn start(mut fpath: PathBuf) -> DataCollectionHandle {
+pub fn start(mut fpath: PathBuf, window: ui::WindowHandle) -> DataCollectionHandle {
 	fs::create_dir_all(&fpath).expect("Failed to create directory");
 
 	fpath.push("gibberish/");
@@ -38,17 +43,14 @@ pub fn start(mut fpath: PathBuf) -> DataCollectionHandle {
 
 	let ai_stream = ai_chan
 		.make_async()
+		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
+			log::debug!("Appended ({}, {}) to chart", data.timestamp, data.data[0]);
+			window.append_to_chart(data.timestamp, data.data[0]);
+		})
 		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ready(()));
 
 	let data_stream = encoder_stream.join(ai_stream).map(|_| ());
-
-	// let data_stream = futures::stream::iter(1..)
-	// 	.map(|idx| {
-	// 		println!("did the thing: {}", idx);
-	// 		thread::sleep(std::time::Duration::from_secs(1));
-	// 	})
-	// 	.for_each(|_| future::ready(()));
 
 	DataCollectionHandle::start(data_stream)
 }
@@ -72,7 +74,10 @@ impl DataCollectionHandle {
 			.expect("Failed to spawn data collection thread");
 
 		log::info!("Started data collection");
-		Self { inner: stop_handle, thread_handle }
+		Self {
+			inner: stop_handle,
+			thread_handle,
+		}
 	}
 
 	pub fn stop(self) {
@@ -83,7 +88,9 @@ impl DataCollectionHandle {
 
 		match thread_status {
 			Ok(success_flag) if success_flag == true => log::info!("Data collection stopped"),
-			_ => log::error!("Unknown error has occured when trying to stop data collection thread")
+			_ => {
+				log::error!("Unknown error has occured when trying to stop data collection thread")
+			}
 		};
 	}
 }
@@ -101,3 +108,59 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> BufWriter<File> {
 		File::create(fpath).expect("Failed to create file"),
 	)
 }
+
+struct Bifurcate<S, F>
+where
+	S: Stream,
+	F: Fn(&S::Item),
+{
+	inner: S,
+	state: usize,
+	n: usize,
+	f: F,
+}
+
+impl<S, F> Stream for Bifurcate<S, F>
+where
+	S: Stream + Unpin,
+	F: Fn(&S::Item) + Unpin,
+{
+	type Item = S::Item;
+
+	fn poll_next(mut self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+
+		let mut self_ref = self.as_mut();
+
+		let pinned = Pin::new(&mut self_ref.inner);
+
+		let poll = Stream::poll_next(pinned, lw);
+
+		let item = futures::ready!(poll);
+
+		if self_ref.state % self_ref.n == 0 {
+			item.as_ref().map_or((), &self_ref.f)
+		}
+
+		self_ref.state += 1;
+
+		Poll::Ready(item)
+
+	}
+}
+
+trait StreamBifurcate: Stream {
+	fn bifurcate<F>(self, n: usize, f: F) -> Bifurcate<Self, F>
+	where
+		Self: Sized,
+		F: Fn(&Self::Item),
+	{
+		Bifurcate {
+			inner: self,
+			state: 0,
+			n,
+			f,
+		}
+	}
+}
+
+impl<T: Stream> StreamBifurcate for T {}

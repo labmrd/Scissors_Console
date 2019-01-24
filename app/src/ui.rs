@@ -56,7 +56,7 @@ impl WindowHandle {
 		}
 	}
 
-	fn append_to_chart(&self, time: f64, force: f64) {
+	pub fn append_to_chart(&self, time: u64, force: f64) {
 		if let Some(handle) = self.get() {
 			let call = format!("append_to_chart({},{})", time, force);
 			handle.eval(&call);
@@ -203,14 +203,12 @@ impl UiEvent<'_> {
 		fpath.push(file);
 
 		if col_handle.is_none() {
-			*col_handle = Some(data_collection::start(fpath));
+			*col_handle = Some(data_collection::start(fpath, WindowHandle::clone(&self.app.win)));
 		}
 
 	}
 
 	fn stop(self) {
-		self.app.win.append_to_chart(1.0, 100.0);
-
 		if let Some(dch) = self.app.data_collection_handle.take() {
 			dch.stop();
 		}
