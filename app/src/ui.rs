@@ -1,21 +1,14 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use log::{Level, Metadata, Record};
-use parking_lot::Mutex;
 
 use crate::data_collection::{self, DataCollectionHandle};
 
-pub struct WindowHandle {
-	inner: Arc<Mutex<Option<tether::Window>>>,
-}
-
-pub struct WindowLogger {
-	handle: WindowHandle,
-}
+pub struct WindowHandle;
+pub struct WindowLogger;
 
 pub struct App {
 	folder_path: PathBuf,
-	pub win: WindowHandle,
 	data_collection_handle: Option<DataCollectionHandle>,
 }
 
@@ -35,52 +28,26 @@ struct UiEvent<'a> {
 }
 
 impl WindowHandle {
-	fn new() -> Self {
-		Self {
-			inner: Arc::new(Mutex::new(None)),
-		}
+	fn eval(js: String) {
+		tether::dispatch(move |win| win.eval(&js));
 	}
 
-	fn get(&self) -> Option<tether::Window> {
-		self.inner.try_lock().and_then(|lock| *lock)
-	}
-
-	fn set(&self, other: tether::Window) {
-		let mut lock = self.inner.lock();
-		*lock = Some(other);
-	}
-
-	pub fn clone(handle: &Self) -> Self {
-		Self {
-			inner: Arc::clone(&handle.inner),
-		}
-	}
-
-	pub fn append_to_chart(&self, time: u64, force: f64) {
-		if let Some(handle) = self.get() {
-			let call = format!("append_to_chart({},{})", time, force);
-			handle.eval(&call);
-		}
+	pub fn append_to_chart(time: u64, force: f64) {
+		let js = format!("append_to_chart({},{})", time, force);
+		tether::dispatch(move |win| win.eval(&js));
 	}
 }
 
-unsafe impl Send for WindowHandle {}
-unsafe impl Sync for WindowHandle {}
-
 impl WindowLogger {
-	#[cfg(debug_assertions)]
-	const LOG_LEVEL: Level = Level::Debug;
-
-	#[cfg(not(debug_assertions))]
 	const LOG_LEVEL: Level = Level::Info;
 
-	fn new(handle: WindowHandle) -> Self {
-		Self { handle }
+	const fn new() -> Self {
+		Self {}
 	}
 
-	pub fn init(handle: WindowHandle) -> Result<(), log::SetLoggerError> {
-		let boxed = Box::new(WindowLogger::new(handle));
-		log::set_boxed_logger(boxed).map(|_| log::set_max_level(log::LevelFilter::max()))
+	pub fn init() -> Result<(), log::SetLoggerError> {
+		static LOGGER: WindowLogger = WindowLogger::new();
+		log::set_logger(&LOGGER).map(|_| log::set_max_level(log::LevelFilter::max()))
 	}
 }
 
@@ -90,18 +57,19 @@ impl log::Log for WindowLogger {
 	}
 
 	fn log(&self, record: &Record) {
-		if !self.enabled(record.metadata()) {
-			return;
-		}
+		let time = time::now();
 
 		let level = record.level();
 		let args = record.args();
+		let time_fmt = time.strftime("%I:%M:%S %p").expect("Failed to get time");
+		
+		// Always log to stdout
+		println!("{}\t{}\t{}", level, time_fmt, args);
 
-		if let Some(handle) = self.handle.get() {
-			let js = format!(r#"append_to_log("{}\t{}\n")"#, level, args);
-			handle.eval(&js);
-		} else {
-			println!("{}\t{}", level, args);
+		// Only sometimes log to the ui
+		if self.enabled(record.metadata()) {
+			let js = format!(r#"append_to_log("{}\t{}\t{}\n")"#, level, time_fmt, args);
+			WindowHandle::eval(js);
 		}
 	}
 
@@ -111,10 +79,8 @@ impl log::Log for WindowLogger {
 impl App {
 	pub fn new() -> Self {
 		let tmp_dir = std::env::temp_dir();
-		let win = WindowHandle::new();
 		App {
 			folder_path: tmp_dir,
-			win,
 			data_collection_handle: None,
 		}
 	}
@@ -148,7 +114,6 @@ impl<'a> From<&'a str> for UiEventVariant<'a> {
 
 impl tether::Handler for App {
 	fn message(&mut self, win: tether::Window, msg: &str) {
-		self.win.set(win);
 		UiEvent::process(msg, win, self);
 	}
 }
@@ -203,15 +168,21 @@ impl UiEvent<'_> {
 		fpath.push(file);
 
 		if col_handle.is_none() {
-			*col_handle = Some(data_collection::start(fpath, WindowHandle::clone(&self.app.win)));
-		}
+			*col_handle = data_collection::start(&mut fpath);
 
+			// If its still none, that means there was a file open error
+			if col_handle.is_none() {
+				log::error!("File '{}' already exists", fpath.display());
+			}
+		}
 	}
 
 	fn stop(self) {
 		if let Some(dch) = self.app.data_collection_handle.take() {
 			dch.stop();
 		}
+
+		self.window.eval("clear_chart()");
 
 		log::debug!("Stop button pressed");
 	}

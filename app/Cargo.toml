@@ -8,8 +8,8 @@ edition = "2018"
 nidaqmx = {path = "../nidaqmx"}
 
 tether = "0.2"
-log = {version = "0.4", features = ["std"]}
+log = "0.4"
 nfd = "0.0.4"
-parking_lot = {version = "0.7", features = ["nightly"]}
+time = "0.1"
 
 futures-preview = "0.3.0-alpha.12"

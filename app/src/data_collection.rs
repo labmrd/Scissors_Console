@@ -9,7 +9,7 @@ use futures::{
 use nidaqmx::{AiChannel, CiEncoderChannel};
 
 use std::{
-	fs::{self, File},
+	fs::{self, File, OpenOptions},
 	io::{BufWriter, Write},
 	marker::Unpin,
 	path::PathBuf,
@@ -23,13 +23,13 @@ const SAMPLING_RATE: usize = 1000;
 const DATA_SEND_RATE: usize = 10; // hz
 const UPDATE_UI_SAMP_COUNT: usize = SAMPLING_RATE / DATA_SEND_RATE;
 
-pub fn start(mut fpath: PathBuf, window: ui::WindowHandle) -> DataCollectionHandle {
+pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 	fs::create_dir_all(&fpath).expect("Failed to create directory");
 
 	fpath.push("gibberish/");
 
-	let mut adc_file = open_buffered_file(&mut fpath, "adc");
-	let mut enc_file = open_buffered_file(&mut fpath, "enc");
+	let mut adc_file = open_buffered_file(fpath, "adc")?;
+	let mut enc_file = open_buffered_file(fpath, "enc")?;
 
 	log::info!("Created files");
 
@@ -44,15 +44,14 @@ pub fn start(mut fpath: PathBuf, window: ui::WindowHandle) -> DataCollectionHand
 	let ai_stream = ai_chan
 		.make_async()
 		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
-			log::debug!("Appended ({}, {}) to chart", data.timestamp, data.data[0]);
-			window.append_to_chart(data.timestamp, data.data[0]);
+			ui::WindowHandle::append_to_chart(data.timestamp, data.data[0]);
 		})
 		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ready(()));
 
 	let data_stream = encoder_stream.join(ai_stream).map(|_| ());
 
-	DataCollectionHandle::start(data_stream)
+	Some(DataCollectionHandle::start(data_stream))
 }
 
 pub struct DataCollectionHandle {
@@ -95,7 +94,7 @@ impl DataCollectionHandle {
 	}
 }
 
-fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> BufWriter<File> {
+fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>> {
 	const BUF_CAPACITY: usize = 1024 * 1024; // 1 Mb
 
 	fpath.set_file_name(name);
@@ -103,10 +102,12 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> BufWriter<File> {
 
 	log::debug!("File created: {}", fpath.display());
 
-	BufWriter::with_capacity(
-		BUF_CAPACITY,
-		File::create(fpath).expect("Failed to create file"),
-	)
+	let mut file_opts = OpenOptions::new();
+
+	let file = file_opts.write(true).create_new(true).open(fpath).ok()?;
+	let file = BufWriter::with_capacity(BUF_CAPACITY, file);
+
+	Some(file)
 }
 
 struct Bifurcate<S, F>
@@ -128,7 +129,6 @@ where
 	type Item = S::Item;
 
 	fn poll_next(mut self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
-
 		let mut self_ref = self.as_mut();
 
 		let pinned = Pin::new(&mut self_ref.inner);
@@ -144,7 +144,6 @@ where
 		self_ref.state += 1;
 
 		Poll::Ready(item)
-
 	}
 }
 

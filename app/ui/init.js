@@ -71,6 +71,7 @@ function append_to_chart(time, force) {
 function clear_chart() {
 	chart.data.labels = [];
 	chart.data.datasets[0].data = [];
+	chart.update();
 }
 
 document.getElementById("btnChooseDir").onclick = () => {
