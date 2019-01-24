@@ -351,23 +351,23 @@ fn process_connection(tcp_stream: TcpStream) -> Result<(), ()> {
 	Ok(())
 }
 
-fn main() -> Result<(), Box<std::error::Error>> {
-	let _ = log::set_logger(&LOGGER).map(|_| log::set_max_level(log::LevelFilter::max()));
+// fn main() -> Result<(), Box<std::error::Error>> {
+// 	let _ = log::set_logger(&LOGGER).map(|_| log::set_max_level(log::LevelFilter::max()));
 
-	let addr = SocketAddr::from(ADDR);
-	let socket = TcpListener::bind(&addr)?;
+// 	let addr = SocketAddr::from(ADDR);
+// 	let socket = TcpListener::bind(&addr)?;
 
-	log::debug!("Listening on: {}", addr);
+// 	log::debug!("Listening on: {}", addr);
 
-	let connection_daemon = socket
-		.incoming()
-		.map_err(|_| ())
-		.for_each(move |socket| process_connection(socket));
+// 	let connection_daemon = socket
+// 		.incoming()
+// 		.map_err(|_| ())
+// 		.for_each(move |socket| process_connection(socket));
 
-	tokio::run(connection_daemon);
+// 	tokio::run(connection_daemon);
 
-	Ok(())
-}
+// 	Ok(())
+// }
 
 // use std::io::Write;
 // use futures::{stream, Stream};

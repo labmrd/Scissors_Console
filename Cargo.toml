@@ -1,11 +1,9 @@
 [workspace]
 
 members = [
-	"client",
 	"nidaqmx-sys",
 	"nidaqmx",
-	"server",
-	"events",
+	"app"
 ]
 
 [profile.release]

@@ -1,0 +1,15 @@
+[package]
+name = "tether_test"
+version = "0.1.0"
+authors = ["Amer Safdari <safda004@umn.edu>"]
+edition = "2018"
+
+[dependencies]
+tether = "0.2"
+log = {version = "0.4", features = ["std"]}
+pretty_env_logger = "0.3"
+nfd = "0.0.4"
+parking_lot = {version = "0.7", features = ["nightly"]}
+
+[profile.release]
+lto = "on"
