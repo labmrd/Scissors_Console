@@ -6,13 +6,13 @@ var plotOptions = {
 		yAxes: [{
 			scaleLabel: {
 				display: true,
-				labelString: "Force (V)"
+				labelString: "Force [V]"
 			}
 		}],
 		xAxes: [{
 			scaleLabel: {
 				display: true,
-				labelString: "Time (s)"
+				labelString: "Time [s]"
 			}
 		}]
 	},
