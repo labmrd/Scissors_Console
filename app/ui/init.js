@@ -47,6 +47,7 @@ var LOG_DATA = document.getElementById("statusLog");
 
 function append_to_log(str) {
 	LOG_DATA.value += str;
+	LOG_DATA.scrollTop = LOG_DATA.scrollHeight;
 }
 
 function clear_log() {
