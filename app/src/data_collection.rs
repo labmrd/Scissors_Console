@@ -44,7 +44,7 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 	let ai_stream = ai_chan
 		.make_async()
 		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
-			ui::WindowHandle::append_to_chart(data.timestamp, data.data[0]);
+			ui::WindowHandle::append_to_chart(data.timestamp, data.data[0], data.data[1]);
 		})
 		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ready(()));

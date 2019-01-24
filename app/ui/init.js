@@ -6,13 +6,13 @@ var plotOptions = {
 		yAxes: [{
 			scaleLabel: {
 				display: true,
-				labelString: "Force (lbf)"
+				labelString: "Force (V)"
 			}
 		}],
 		xAxes: [{
 			scaleLabel: {
 				display: true,
-				labelString: "Time (ms)"
+				labelString: "Time (s)"
 			}
 		}]
 	},
@@ -31,9 +31,16 @@ var plotData = {
 			data: [],
 			borderColor: "red",
 			backgroundColor: "red",
-			label: "F",
+			label: "F1",
 			fill: false
 		},
+		{
+			data: [],
+			borderColor: "green",
+			backgroundColor: "green",
+			label: "F2",
+			fill: false
+		}
 	]
 };
 
@@ -62,15 +69,40 @@ function get_file_name() {
 	return document.getElementById("inputFilename").value;
 }
 
-function append_to_chart(time, force) {
-	chart.data.labels.push(time);
-	chart.data.datasets[0].data.push(force);
+var t0 = 0;
+const MAX_PTS = 100;
+
+function append_to_chart(time, force1, force2) {
+
+	time = time / 1e9;
+
+	if (t0 == 0) {
+		t0 = time;
+	}
+
+	time = time - t0;
+
+	chart.data.labels.push(time.toFixed(2));
+	chart.data.datasets[0].data.push(force1);
+	chart.data.datasets[1].data.push(force2);
+
+	if (chart.data.labels.length > MAX_PTS) {
+		chart.data.labels.splice(0, 1);
+		chart.data.datasets.forEach((dataset) => {
+			dataset.data.splice(0, 1);
+		});
+	}
+
 	chart.update();
 }
 
 function clear_chart() {
+
+	t0 = 0;
+
 	chart.data.labels = [];
 	chart.data.datasets[0].data = [];
+	chart.data.datasets[1].data = [];
 	chart.update();
 }
 

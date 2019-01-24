@@ -32,8 +32,8 @@ impl WindowHandle {
 		tether::dispatch(move |win| win.eval(&js));
 	}
 
-	pub fn append_to_chart(time: u64, force: f64) {
-		let js = format!("append_to_chart({},{})", time, force);
+	pub fn append_to_chart(time: u64, force1: f64, force2: f64) {
+		let js = format!("append_to_chart({},{},{})", time, force1, force2);
 		tether::dispatch(move |win| win.eval(&js));
 	}
 }
