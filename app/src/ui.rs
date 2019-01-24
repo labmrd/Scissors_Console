@@ -9,7 +9,7 @@ pub fn create() -> WindowHandle {
     let logger_handle = WindowHandle::clone(&app.win);
 
     // If we can't initialize the logger, might as well panic
-    WindowLogger::init(logger_handle).unwrap();
+    WindowLogger::init(logger_handle).expect("Failed to initialize logger");
 
     let win_handle = WindowHandle::clone(&app.win);
 

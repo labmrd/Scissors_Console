@@ -1,14 +1,15 @@
 use crate::nidaqmx::{
 	get_steady_time_nanoseconds,
 	task_handle::{RawTaskHandle, TaskHandle},
-	DAQ_CALLBACK_FREQ, SAMPLE_TIMEOUT_SECS, SCAN_WARNING
+	DAQ_CALLBACK_FREQ, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
 };
 
-use std::{ptr, fmt};
+use std::{fmt, pin::Pin, ptr};
 
 use futures::{
+	channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
 	stream::Stream,
-	sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+	task::LocalWaker,
 	Poll,
 };
 
@@ -148,10 +149,10 @@ pub struct AsyncAiChannel {
 
 impl Stream for AsyncAiChannel {
 	type Item = ScanData;
-	type Error = ();
 
-	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-		self.recv.poll()
+	fn poll_next(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+		let recv = &mut self.get_mut().recv;
+		Stream::poll_next(Pin::new(recv), lw)
 	}
 }
 
@@ -159,7 +160,6 @@ unsafe fn read_analog_f64(
 	task_handle: &mut RawTaskHandle,
 	n_samps: u32,
 ) -> Result<BatchedScan, i32> {
-
 	let mut samps_read = 0i32;
 	let samps_read_ptr = &mut samps_read as *mut _;
 

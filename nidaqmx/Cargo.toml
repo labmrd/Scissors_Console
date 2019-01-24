@@ -7,5 +7,5 @@ edition = "2018"
 [dependencies]
 nidaqmx-sys = {path = "../nidaqmx-sys"}
 
-futures = "0.1"
 time = "0.1"
+futures-preview = "0.3.0-alpha.12"

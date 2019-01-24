@@ -5,11 +5,12 @@ use crate::nidaqmx::{
 	DAQ_CALLBACK_FREQ, EMPTY_CSTRING, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
 };
 
-use std::{ptr, fmt, ffi::CString};
+use std::{ffi::CString, fmt, pin::Pin, ptr};
 
 use futures::{
+	channel::mpsc::{self, UnboundedReceiver, UnboundedSender},
 	stream::Stream,
-	sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+	task::LocalWaker,
 	Poll,
 };
 
@@ -186,10 +187,10 @@ pub struct AsyncEncoderChannel {
 
 impl Stream for AsyncEncoderChannel {
 	type Item = EncoderReading;
-	type Error = ();
 
-	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-		self.recv.poll()
+	fn poll_next(self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+		let recv = &mut self.get_mut().recv;
+		Stream::poll_next(Pin::new(recv), lw)
 	}
 }
 
