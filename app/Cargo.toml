@@ -5,6 +5,8 @@ authors = ["Amer Safdari <safda004@umn.edu>"]
 edition = "2018"
 
 [dependencies]
+nidaqmx = {path = "../nidaqmx"}
+
 tether = "0.2"
 log = {version = "0.4", features = ["std"]}
 nfd = "0.0.4"

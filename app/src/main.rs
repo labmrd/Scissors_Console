@@ -1,19 +1,21 @@
 #![feature(futures_api)]
 
-use futures::executor::LocalPool;
-
 mod ui;
+mod data_collection;
 
-const SAMPLING_RATE: usize = 1000;
-const DATA_SEND_RATE: usize = 10; // hz
-const COUNT_MOD: usize = SAMPLING_RATE / DATA_SEND_RATE;
+use ui::{App, WindowHandle, WindowLogger};
 
-fn main() -> ! {
-	let win_handle = ui::create();
+fn main() {
+	let app = App::new();
 
+	let logger_handle = WindowHandle::clone(&app.win);
 
+	// If we can't initialize the logger, might as well panic
+	WindowLogger::init(logger_handle).expect("Failed to initialize logger");
 
-	loop {
-		std::thread::sleep(std::time::Duration::from_secs(10));
-	}
+	tether::builder()
+		.html(include_str!("../ui/index.html"))
+		.minimum_size(800, 600)
+		.handler(app)
+		.start();
 }
