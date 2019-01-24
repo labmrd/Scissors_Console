@@ -72,7 +72,7 @@ impl WindowLogger {
 	const LOG_LEVEL: Level = Level::Debug;
 
 	#[cfg(not(debug_assertions))]
-	const LOG_LEVEL: Level = Level::Warn;
+	const LOG_LEVEL: Level = Level::Info;
 
 	fn new(handle: WindowHandle) -> Self {
 		Self { handle }
@@ -194,13 +194,16 @@ impl UiEvent<'_> {
 		log::debug!(
 			"Start button pressed, file: {}, path: {}",
 			file,
-			self.app.folder_path.to_string_lossy()
+			self.app.folder_path.display()
 		);
 
 		let col_handle = &mut self.app.data_collection_handle;
 
+		let mut fpath = PathBuf::clone(&self.app.folder_path);
+		fpath.push(file);
+
 		if col_handle.is_none() {
-			*col_handle = Some(data_collection::start(file));
+			*col_handle = Some(data_collection::start(fpath));
 		}
 
 	}
