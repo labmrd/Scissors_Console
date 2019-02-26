@@ -4,6 +4,11 @@ version = "0.3.0"
 authors = ["Amer Safdari <safda004@umn.edu>"]
 edition = "2018"
 
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+
 [dependencies]
 nidaqmx = {git = "ssh://git@github.umn.edu/safda004/nidaqmx-rs.git"}
 
