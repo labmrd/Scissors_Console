@@ -97,7 +97,9 @@ impl DataCollectionHandle {
 fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>> {
 	const BUF_CAPACITY: usize = 1024 * 1024; // 1 Mb
 
-	fpath.set_file_name(name);
+	let tm = time::now();
+
+	fpath.set_file_name(format!("{}_{}", name, tm.rfc3339()));
 	fpath.set_extension("csv");
 
 	log::debug!("File created: {}", fpath.display());
@@ -105,7 +107,9 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 	let mut file_opts = OpenOptions::new();
 
 	let file = file_opts.write(true).create_new(true).open(fpath).ok()?;
-	let file = BufWriter::with_capacity(BUF_CAPACITY, file);
+	let mut file = BufWriter::with_capacity(BUF_CAPACITY, file);
+
+	let _ = write!(&mut file, "%{}", tm.rfc822());
 
 	Some(file)
 }
