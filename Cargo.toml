@@ -1,10 +1,16 @@
-[workspace]
-members = [
-	"nidaqmx-sys",
-	"nidaqmx",
-	"app"
-]
+[package]
+name = "scissors_console"
+version = "0.3.0"
+authors = ["Amer Safdari <safda004@umn.edu>"]
+edition = "2018"
 
-[profile.release]
-lto = "on"
-opt-level = 3
+[dependencies]
+nidaqmx = {git = "ssh://git@github.umn.edu/safda004/nidaqmx-rs.git"}
+
+time = "0.1"
+tether = "0.2"
+log = {version = "0.4", features = ["std"]}
+nativefiledialog-rs = {git = "ssh://git@github.com/amiraeva/nativefiledialog-rs.git"}
+parking_lot = {version = "0.7", features = ["nightly"]}
+
+futures-preview = "0.3.0-alpha.13"

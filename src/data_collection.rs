@@ -2,7 +2,7 @@ use futures::{
 	executor::LocalPool,
 	future::{self, Future, FutureExt},
 	stream::{Stream, StreamExt},
-	task::LocalWaker,
+	task::Waker,
 	Poll,
 };
 
@@ -128,12 +128,12 @@ where
 {
 	type Item = S::Item;
 
-	fn poll_next(mut self: Pin<&mut Self>, lw: &LocalWaker) -> Poll<Option<Self::Item>> {
+	fn poll_next(mut self: Pin<&mut Self>, wkr: &Waker) -> Poll<Option<Self::Item>> {
 		let mut self_ref = self.as_mut();
 
 		let pinned = Pin::new(&mut self_ref.inner);
 
-		let poll = Stream::poll_next(pinned, lw);
+		let poll = Stream::poll_next(pinned, wkr);
 
 		let item = futures::ready!(poll);
 

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use log::{Level, Metadata, Record};
 
 use crate::data_collection::{self, DataCollectionHandle};
+use nativefiledialog_rs as nfd;
 
 pub struct WindowHandle;
 pub struct WindowLogger;
