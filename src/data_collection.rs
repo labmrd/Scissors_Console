@@ -109,7 +109,7 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 	let file = file_opts.write(true).create_new(true).open(fpath).ok()?;
 	let mut file = BufWriter::with_capacity(BUF_CAPACITY, file);
 
-	let _ = write!(&mut file, "%{}", tm.rfc822());
+	let _ = writeln!(&mut file, "%{}", tm.rfc822());
 
 	Some(file)
 }
