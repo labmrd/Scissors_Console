@@ -24,6 +24,12 @@ const DATA_SEND_RATE: usize = 10; // hz
 const UPDATE_UI_SAMP_COUNT: usize = SAMPLING_RATE / DATA_SEND_RATE;
 
 pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
+
+	if fpath.exists() {
+		log::error!("file already exists: {}", fpath.display());
+		return None;
+	}
+
 	fs::create_dir_all(&fpath).expect("Failed to create directory");
 
 	fpath.push("gibberish/");
