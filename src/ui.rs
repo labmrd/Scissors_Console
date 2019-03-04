@@ -163,6 +163,8 @@ impl UiEvent<'_> {
 			self.app.folder_path.display()
 		);
 
+		self.window.eval("clear_chart()");
+
 		let col_handle = &mut self.app.data_collection_handle;
 
 		let mut fpath = PathBuf::clone(&self.app.folder_path);
@@ -182,8 +184,6 @@ impl UiEvent<'_> {
 		if let Some(dch) = self.app.data_collection_handle.take() {
 			dch.stop();
 		}
-
-		self.window.eval("clear_chart()");
 
 		log::debug!("Stop button pressed");
 	}

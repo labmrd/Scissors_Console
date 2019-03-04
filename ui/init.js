@@ -7,12 +7,21 @@ var plotOptions = {
 			scaleLabel: {
 				display: true,
 				labelString: "Force [V]"
-			}
+			},
+			id: 'left',
+			position: 'left'
+		}, {
+			scaleLabel: {
+				display: true,
+				labelString: "Position [counts]"
+			},
+			id: 'right',
+			position: 'right'
 		}],
 		xAxes: [{
 			scaleLabel: {
 				display: true,
-				labelString: "Time [s]"
+				labelString: "Time [s]",
 			}
 		}]
 	},
@@ -39,6 +48,13 @@ var plotData = {
 			borderColor: "green",
 			backgroundColor: "green",
 			label: "F2",
+			fill: false
+		},
+		{
+			data: [],
+			borderColor: "blue",
+			backgroundColor: "blue",
+			label: "P",
 			fill: false
 		}
 	]
