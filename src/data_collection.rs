@@ -14,8 +14,12 @@ use std::{
 	marker::Unpin,
 	path::PathBuf,
 	pin::Pin,
+	sync::Arc,
 	thread,
+	time::Instant,
 };
+
+use atomic::Atomic;
 
 use crate::ui;
 
@@ -24,33 +28,28 @@ const DATA_SEND_RATE: usize = 10; // hz
 const UPDATE_UI_SAMP_COUNT: usize = SAMPLING_RATE / DATA_SEND_RATE;
 
 pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
-
-	if fpath.exists() {
-		log::error!("file already exists: {}", fpath.display());
-		return None;
-	}
-
-	fs::create_dir_all(&fpath).expect("Failed to create directory");
-
-	fpath.push("gibberish/");
-
-	let mut adc_file = open_buffered_file(fpath, "adc")?;
-	let mut enc_file = open_buffered_file(fpath, "enc")?;
-
-	log::info!("Created files");
+	let (mut adc_file, mut enc_file) = prepare_files(fpath)?;
 
 	let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
 	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
 
+	let enc_plot_data = Arc::new(LatestSensorData::new());
+	let adc_plot_data = Arc::clone(&enc_plot_data);
+
 	let encoder_stream = encoder_chan
 		.make_async()
+		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
+			enc_plot_data.pos.store(data.pos, atomic::Ordering::Relaxed);
+		})
 		.map(move |data| writeln!(enc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ready(()));
 
 	let ai_stream = ai_chan
 		.make_async()
 		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
-			ui::WindowHandle::append_to_chart(data.timestamp, data.data[0], data.data[1]);
+			let pos = adc_plot_data.pos.load(atomic::Ordering::Relaxed);
+			let tstamp = adc_plot_data.start_t.elapsed().as_millis() as f64 / 1e3;
+			ui::WindowHandle::append_to_chart(tstamp, data.data[0], data.data[1], pos);
 		})
 		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ready(()));
@@ -120,6 +119,23 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 	Some(file)
 }
 
+fn prepare_files(fpath: &mut PathBuf) -> Option<(BufWriter<File>, BufWriter<File>)> {
+	if fpath.exists() {
+		return None;
+	}
+
+	fs::create_dir_all(&fpath).expect("Failed to create directory");
+
+	fpath.push("gibberish/");
+
+	let adc_file = open_buffered_file(fpath, "adc")?;
+	let enc_file = open_buffered_file(fpath, "enc")?;
+
+	log::info!("Created files");
+
+	Some((adc_file, enc_file))
+}
+
 struct Bifurcate<S, F>
 where
 	S: Stream,
@@ -173,3 +189,21 @@ trait StreamBifurcate: Stream {
 }
 
 impl<T: Stream> StreamBifurcate for T {}
+
+struct LatestSensorData {
+	start_t: Instant,
+	// f0: Atomic<f64>,
+	// f1: Atomic<f64>,
+	pos: Atomic<i32>,
+}
+
+impl LatestSensorData {
+	fn new() -> Self {
+		Self {
+			start_t: Instant::now(),
+			// f0: Default::default(),
+			// f1: Default::default(),
+			pos: Default::default(),
+		}
+	}
+}
