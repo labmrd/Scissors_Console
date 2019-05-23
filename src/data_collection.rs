@@ -1,8 +1,8 @@
 use futures::{
 	executor::LocalPool,
-	future::{self, Future, FutureExt},
+	future::{self, Future, FutureExt, join},
 	stream::{Stream, StreamExt},
-	task::Waker,
+	task::Context,
 	Poll,
 };
 
@@ -54,8 +54,7 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ready(()));
 
-	let data_stream = encoder_stream.join(ai_stream).map(|_| ());
-
+	let data_stream = join(ai_stream, encoder_stream).map(|_| ());
 	Some(DataCollectionHandle::start(data_stream))
 }
 
@@ -154,12 +153,12 @@ where
 {
 	type Item = S::Item;
 
-	fn poll_next(mut self: Pin<&mut Self>, wkr: &Waker) -> Poll<Option<Self::Item>> {
+	fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
 		let mut self_ref = self.as_mut();
 
 		let pinned = Pin::new(&mut self_ref.inner);
 
-		let poll = Stream::poll_next(pinned, wkr);
+		let poll = Stream::poll_next(pinned, ctx);
 
 		let item = futures::ready!(poll);
 

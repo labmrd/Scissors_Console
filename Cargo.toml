@@ -1,6 +1,6 @@
 [package]
 name = "scissors_console"
-version = "0.4.0"
+version = "0.4.1"
 authors = ["Amer Safdari <safda004@umn.edu>"]
 edition = "2018"
 
@@ -17,5 +17,5 @@ tether = "0.2"
 log = {version = "0.4", features = ["std"]}
 nativefiledialog-rs = {git = "ssh://git@github.com/amiraeva/nativefiledialog-rs.git"}
 parking_lot = {version = "0.7", features = ["nightly"]}
-futures-preview = "0.3.0-alpha.13"
+futures-preview = "=0.3.0-alpha.16"
 atomic = {version = "0.4", features = ["nightly"]}

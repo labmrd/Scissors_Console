@@ -1,5 +1,3 @@
-#![feature(futures_api)]
-
 // compile with RUSTFLAGS="-Crelocation-model=dynamic-no-pic -Clink-args=-no-pie" cargo build --release
 
 mod data_collection;
