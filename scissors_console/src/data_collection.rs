@@ -1,9 +1,8 @@
 use futures::{
-	executor::LocalPool,
-	future::{self, Future, FutureExt, join},
-	stream::{Stream, StreamExt},
-	task::Context,
+	future::{self, Future},
+	stream::Stream,
 	Poll,
+	sync::oneshot
 };
 
 use nidaqmx::{AiChannel, CiEncoderChannel};
@@ -13,13 +12,13 @@ use std::{
 	io::{BufWriter, Write},
 	marker::Unpin,
 	path::PathBuf,
-	pin::Pin,
 	sync::Arc,
 	thread,
 	time::Instant,
 };
 
 use atomic::Atomic;
+use tokio_current_thread::CurrentThread;
 
 use crate::ui;
 
@@ -31,7 +30,7 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 	let (mut adc_file, mut enc_file) = prepare_files(fpath)?;
 
 	let encoder_chan = CiEncoderChannel::new(SAMPLING_RATE);
-	let ai_chan = AiChannel::new("/Dev1/PFI13", SAMPLING_RATE);
+	let ai_chan = AiChannel::new("/Dev1/PFI13", "Dev1/ai0:1", SAMPLING_RATE);
 
 	let enc_plot_data = Arc::new(LatestSensorData::new());
 	let adc_plot_data = Arc::clone(&enc_plot_data);
@@ -42,7 +41,7 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 			enc_plot_data.pos.store(data.pos, atomic::Ordering::Relaxed);
 		})
 		.map(move |data| writeln!(enc_file, "{}", data).expect("Failed to write data"))
-		.for_each(|_| future::ready(()));
+		.for_each(|_| future::ok(()));
 
 	let ai_stream = ai_chan
 		.make_async()
@@ -52,40 +51,41 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 			ui::WindowHandle::append_to_chart(tstamp, data.data[0], data.data[1], pos);
 		})
 		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
-		.for_each(|_| future::ready(()));
+		.for_each(|_| future::ok(()));
 
-	let data_stream = join(ai_stream, encoder_stream).map(|_| ());
+	let data_stream = ai_stream.join(encoder_stream).map(|_| ()).map_err(|_| ());
 	Some(DataCollectionHandle::start(data_stream))
 }
 
 pub struct DataCollectionHandle {
-	inner: future::AbortHandle,
+	stop_handle: oneshot::Sender<()>,
 	thread_handle: thread::JoinHandle<bool>,
 }
 
 impl DataCollectionHandle {
 	fn start<F>(fut: F) -> Self
 	where
-		F: Future<Output = ()> + Send + 'static,
+		F: Future<Item = (), Error = ()> + Send + 'static,
 	{
-		let (fut, stop_handle) = future::abortable(fut);
+		let (snd, recv) = oneshot::channel::<()>();
+		let new_fut = fut.select(recv.map_err(|_| ()));
 
 		let thrd = thread::Builder::new().name("Data Collection Driver".to_string());
 
 		let thread_handle = thrd
-			.spawn(move || LocalPool::new().run_until(fut).is_err())
+			.spawn(move || CurrentThread::new().block_on(new_fut).is_err())
 			.expect("Failed to spawn data collection thread");
 
 		log::info!("Started data collection");
 		Self {
-			inner: stop_handle,
+			stop_handle: snd,
 			thread_handle,
 		}
 	}
 
 	pub fn stop(self) {
 		log::debug!("Sent abort signal");
-		self.inner.abort();
+		let _ = self.stop_handle.send(());
 
 		let thread_status = self.thread_handle.join();
 
@@ -152,23 +152,19 @@ where
 	F: Fn(&S::Item) + Unpin,
 {
 	type Item = S::Item;
+	type Error = S::Error;
 
-	fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
-		let mut self_ref = self.as_mut();
+	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
 
-		let pinned = Pin::new(&mut self_ref.inner);
+		let item = futures::try_ready!(self.inner.poll());
 
-		let poll = Stream::poll_next(pinned, ctx);
-
-		let item = futures::ready!(poll);
-
-		if self_ref.state % self_ref.n == 0 {
-			item.as_ref().map_or((), &self_ref.f)
+		if self.state % self.n == 0 {
+			item.as_ref().map(&self.f);
 		}
 
-		self_ref.state += 1;
+		self.state += 1;
 
-		Poll::Ready(item)
+		Ok(futures::Async::Ready(item))
 	}
 }
 

@@ -30,12 +30,14 @@ struct UiEvent<'a> {
 
 impl WindowHandle {
 	fn eval(js: String) {
-		tether::dispatch(move |win| win.eval(&js));
+		// tether::dispatch(move |win| win.eval(&js));
+		unimplemented!()
 	}
 
 	pub fn append_to_chart(time: f64, force1: f64, force2: f64, pos: i32) {
 		let js = format!("append_to_chart({},{},{},{})", time, force1, force2, pos);
-		tether::dispatch(move |win| win.eval(&js));
+		// tether::dispatch(move |win| win.eval(&js));
+		unimplemented!()
 	}
 }
 
@@ -87,7 +89,7 @@ impl App {
 	}
 
 	fn update_ui<S: AsRef<str>>(window: &tether::Window, folder: S) {
-		let js = format!("update_folder_path({})", tether::escape(folder.as_ref()));
+		let js = format!("update_folder_path({})", folder.as_ref());
 		window.eval(&js);
 	}
 
@@ -114,7 +116,7 @@ impl<'a> From<&'a str> for UiEventVariant<'a> {
 }
 
 impl tether::Handler for App {
-	fn message(&mut self, win: tether::Window, msg: &str) {
+	fn handle(&mut self, win: tether::Window, msg: &str) {
 		UiEvent::process(msg, win, self);
 	}
 }
