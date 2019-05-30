@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{cell::RefCell, path::{Path, PathBuf}};
 
 use log::{Level, Metadata, Record};
 
@@ -7,6 +7,10 @@ use nativefiledialog_rs as nfd;
 
 pub struct WindowHandle;
 pub struct WindowLogger;
+
+thread_local! {
+	static WINDOW: RefCell<Option<tether::Window>> = RefCell::new(None);
+}
 
 pub struct App {
 	folder_path: PathBuf,
@@ -30,14 +34,23 @@ struct UiEvent<'a> {
 
 impl WindowHandle {
 	fn eval(js: String) {
-		// tether::dispatch(move |win| win.eval(&js));
-		unimplemented!()
+		tether::dispatch(|| {
+			WINDOW.with(|win| {
+				let _ = win
+					.try_borrow()
+					.map(|win| {
+						win.as_ref()
+							.expect("WindowHandle called from outside of main thread")
+							.eval(js)
+					})
+					.map_err(|e| log::error!("{}", e));
+			});
+		});
 	}
 
 	pub fn append_to_chart(time: f64, force1: f64, force2: f64, pos: i32) {
 		let js = format!("append_to_chart({},{},{},{})", time, force1, force2, pos);
-		// tether::dispatch(move |win| win.eval(&js));
-		unimplemented!()
+		Self::eval(js)
 	}
 }
 
@@ -65,9 +78,8 @@ impl log::Log for WindowLogger {
 		let level = record.level();
 		let args = record.args();
 		let time_fmt = time.strftime("%I:%M:%S %p").expect("Failed to get time");
-		
 		// Always log to stdout
-		println!("{}\t{}\t{}", level, time_fmt, args);
+		eprintln!("{}\t{}\t{}", level, time_fmt, args);
 
 		// Only sometimes log to the ui
 		if self.enabled(record.metadata()) {
@@ -88,9 +100,9 @@ impl App {
 		}
 	}
 
-	fn update_ui<S: AsRef<str>>(window: &tether::Window, folder: S) {
-		let js = format!("update_folder_path({})", folder.as_ref());
-		window.eval(&js);
+	fn update_ui<S: AsRef<Path>>(window: &tether::Window, folder: S) {
+		let js = format!("update_folder_path({})", folder.as_ref().display());
+		window.eval(js);
 	}
 
 	fn update_folder_path(&mut self, window: &tether::Window, folder: String) {
@@ -152,8 +164,10 @@ impl UiEvent<'_> {
 	fn init(self) {
 		self.window.eval(include_str!("../ui/Chart.min.js"));
 		self.window.eval(include_str!("../ui/init.js"));
+		let win_clone = self.window.clone();
+		WINDOW.with(|win| win.replace(Some(win_clone)));
 
-		App::update_ui(&self.window, self.app.folder_path.to_string_lossy());
+		App::update_ui(&self.window, &self.app.folder_path);
 
 		log::debug!("init called");
 	}

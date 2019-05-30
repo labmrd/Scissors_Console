@@ -88,18 +88,9 @@ function get_file_name() {
 	return document.getElementById("inputFilename").value;
 }
 
-// var t0 = 0;
 const MAX_PTS = 100;
 
 function append_to_chart(time, force1, force2, pos) {
-
-	// time = time / 1e9;
-
-	// if (t0 == 0) {
-	// 	t0 = time;
-	// }
-
-	// time = time - t0;
 
 	chart.data.labels.push(time.toFixed(2));
 	chart.data.datasets[0].data.push(force1);
@@ -118,8 +109,6 @@ function append_to_chart(time, force1, force2, pos) {
 
 function clear_chart() {
 
-	// t0 = 0;
-
 	chart.data.labels = [];
 	chart.data.datasets.forEach((dataset) => {
 		dataset.data = [];
@@ -128,18 +117,18 @@ function clear_chart() {
 }
 
 document.getElementById("btnChooseDir").onclick = () => {
-	window.tether("choose_dir");
+	tether("choose_dir");
 }
 
 document.getElementById("btnStart").onclick = () => {
 	let fname = get_file_name();
-	window.tether("start\n" + fname);
+	tether("start\n" + fname);
 }
 
 document.getElementById("btnStop").onclick = () => {
-	window.tether("stop");
+	tether("stop");
 }
 
 document.getElementById("btnClearLog").onclick = () => {
-	window.tether("clear_log");
+	tether("clear_log");
 }

@@ -1,8 +1,8 @@
 use futures::{
 	future::{self, Future},
 	stream::Stream,
+	sync::oneshot,
 	Poll,
-	sync::oneshot
 };
 
 use nidaqmx::{AiChannel, CiEncoderChannel};
@@ -103,17 +103,30 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 
 	let tm = time::now();
 
-	fpath.set_file_name(format!("{}_{}", name, tm.rfc3339()));
-	fpath.set_extension("csv");
+	fpath.set_file_name(format!(
+		"{}_{}",
+		name,
+		tm.rfc3339().to_string().replace(':', "-")
+	));
 
-	log::debug!("File created: {}", fpath.display());
+	fpath.set_extension("csv");
 
 	let mut file_opts = OpenOptions::new();
 
-	let file = file_opts.write(true).create_new(true).open(fpath).ok()?;
+	log::debug!("fpath to create: {}", &fpath.display());
+
+	let file = file_opts
+		.write(true)
+		.create(true)
+		.create_new(true)
+		.open(&fpath)
+		.ok()?;
+		
 	let mut file = BufWriter::with_capacity(BUF_CAPACITY, file);
 
 	let _ = writeln!(&mut file, "%{}", tm.rfc822());
+
+	log::debug!("File created: {}", fpath.display());
 
 	Some(file)
 }
@@ -155,7 +168,6 @@ where
 	type Error = S::Error;
 
 	fn poll(&mut self) -> Poll<Option<Self::Item>, Self::Error> {
-
 		let item = futures::try_ready!(self.inner.poll());
 
 		if self.state % self.n == 0 {
@@ -187,8 +199,6 @@ impl<T: Stream> StreamBifurcate for T {}
 
 struct LatestSensorData {
 	start_t: Instant,
-	// f0: Atomic<f64>,
-	// f1: Atomic<f64>,
 	pos: Atomic<i32>,
 }
 
@@ -196,8 +206,6 @@ impl LatestSensorData {
 	fn new() -> Self {
 		Self {
 			start_t: Instant::now(),
-			// f0: Default::default(),
-			// f1: Default::default(),
 			pos: Default::default(),
 		}
 	}

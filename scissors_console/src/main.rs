@@ -1,6 +1,6 @@
-#![windows_subsystem = "windows"]
-
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 // linux: compile with RUSTFLAGS="-Crelocation-model=dynamic-no-pic -Clink-args=-no-pie" cargo build --release
+
 mod data_collection;
 mod ui;
 
