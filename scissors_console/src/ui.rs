@@ -78,7 +78,7 @@ impl log::Log for WindowLogger {
 		let level = record.level();
 		let args = record.args();
 		let time_fmt = time.strftime("%I:%M:%S %p").expect("Failed to get time");
-		// Always log to stdout
+		// Always log to stderr
 		eprintln!("{}\t{}\t{}", level, time_fmt, args);
 
 		// Only sometimes log to the ui
@@ -101,7 +101,8 @@ impl App {
 	}
 
 	fn update_ui<S: AsRef<Path>>(window: &tether::Window, folder: S) {
-		let js = format!("update_folder_path({})", folder.as_ref().display());
+		let js = format!(r#"update_folder_path("{}")"#, folder.as_ref().display());
+		log::trace!("calling: {}", &js);
 		window.eval(js);
 	}
 
