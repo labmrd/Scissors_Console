@@ -2,6 +2,10 @@ use std::{cell::RefCell, path::{Path, PathBuf}};
 
 use log::{Level, Metadata, Record};
 
+use std::sync::{Mutex, Arc};
+use std::thread;
+use std::time as std_time;
+
 use crate::data_collection::{self, DataCollectionHandle};
 use nativefiledialog_rs as nfd;
 
@@ -15,6 +19,7 @@ thread_local! {
 pub struct App {
 	folder_path: PathBuf,
 	data_collection_handle: Option<DataCollectionHandle>,
+	beeper_stop_flag: Arc<Mutex<bool>>,
 }
 
 enum UiEventVariant<'a> {
@@ -46,6 +51,8 @@ impl WindowHandle {
 					.map_err(|e| log::error!("{}", e));
 			});
 		});
+
+		// tether::dispatch(|window| window.eval(js))
 	}
 
 	pub fn append_to_chart(time: f64, force1: f64, force2: f64, pos: i32) {
@@ -94,9 +101,11 @@ impl log::Log for WindowLogger {
 impl App {
 	pub fn new() -> Self {
 		let tmp_dir = std::env::temp_dir();
+		let beeper_stop_flag = Arc::new(Mutex::new(true));
 		App {
 			folder_path: tmp_dir,
 			data_collection_handle: None,
+			beeper_stop_flag,
 		}
 	}
 
@@ -107,8 +116,17 @@ impl App {
 	}
 
 	fn update_folder_path(&mut self, window: &tether::Window, folder: String) {
+		if cfg!(windows)
+		{
+			// TODO: Sanitize folder string for windows
+		}
 		Self::update_ui(window, &folder);
 		self.folder_path = folder.into();
+	}
+
+	fn read_flag(flag: &Arc<Mutex<bool>>) -> bool
+	{
+		return *(flag.lock().unwrap());
 	}
 }
 
@@ -190,6 +208,77 @@ impl UiEvent<'_> {
 		if col_handle.is_none() {
 			*col_handle = data_collection::start(&mut fpath);
 
+			
+            // Create a new Arc
+            let c_stop_flag = Arc::clone(&self.app.beeper_stop_flag);
+
+            // Lower flag
+            let mut flag = self.app.beeper_stop_flag.lock().unwrap();
+            *flag = false;
+
+            // Spawn a new thread for the beeper
+            let _handle = thread::spawn(move ||
+            {
+                // Get audio device
+                let device = rodio::default_output_device()
+                    .expect("Unable to get default audio output device!");
+                
+                // Create sink, set volume, and add tone
+                let mut sink = rodio::Sink::new(&device);
+                sink.set_volume(0.75);
+                sink.pause();
+                
+                // Create different tones for initial stretching, then for grasping
+                let stretch_tone = rodio::source::SineWave::new(300);
+                let grasp_tone = rodio::source::SineWave::new(450);
+                
+                // Play stretch tone 3 times
+                sink.append(stretch_tone);
+                thread::sleep(std_time::Duration::from_millis(500));
+
+                for _i in 0..3
+                {
+                    thread::sleep(std_time::Duration::from_millis(1250));
+                    sink.play();
+                    thread::sleep(std_time::Duration::from_millis(1250));
+                    sink.pause();
+                    if App::read_flag(&c_stop_flag) {break;};
+                }
+                sink.stop();
+
+                if App::read_flag(&c_stop_flag) {return ();};
+                
+                let mut sink = rodio::Sink::new(&device);
+                sink.set_volume(0.5);
+                sink.pause();
+                sink.append(grasp_tone);
+
+                thread::sleep(std_time::Duration::from_millis(3000));
+
+                loop
+                {
+					// Wait for next cycle
+                    thread::sleep(std_time::Duration::from_millis(800));
+
+					// beep to move in position
+                    sink.play();
+                    thread::sleep(std_time::Duration::from_millis(200));
+                    sink.pause();
+
+					// prepare for grasp
+                    thread::sleep(std_time::Duration::from_millis(500));
+
+					// grasp
+                    sink.play();
+                    thread::sleep(std_time::Duration::from_millis(750));
+                    sink.pause();	// release grasp
+
+
+					// check for stop button
+                    if App::read_flag(&c_stop_flag) {break;};
+                }
+            });
+
 			// If its still none, that means there was a file open error
 			if col_handle.is_none() {
 				log::error!("File '{}' already exists", fpath.display());
@@ -201,6 +290,10 @@ impl UiEvent<'_> {
 		if let Some(dch) = self.app.data_collection_handle.take() {
 			dch.stop();
 		}
+
+		// Raise flag to stop beeper
+		let mut flag = self.app.beeper_stop_flag.lock().unwrap();
+		*flag = true;
 
 		log::debug!("Stop button pressed");
 	}

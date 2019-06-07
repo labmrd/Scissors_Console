@@ -11,3 +11,7 @@ members = [
 opt-level = 3
 lto = true
 codegen-units = 1
+
+
+[patch.crates-io]
+tether = { git = "https://github.com/amiraeva/tether", rev = "37f7616093924e5b1810ffd0be33c56dad98079f"}
