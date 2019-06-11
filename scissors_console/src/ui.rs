@@ -12,6 +12,8 @@ use nativefiledialog_rs as nfd;
 pub struct WindowHandle;
 pub struct WindowLogger;
 
+extern crate regex;
+
 thread_local! {
 	static WINDOW: RefCell<Option<tether::Window>> = RefCell::new(None);
 }
@@ -118,9 +120,14 @@ impl App {
 	fn update_folder_path(&mut self, window: &tether::Window, folder: String) {
 		if cfg!(windows)
 		{
-			// TODO: Sanitize folder string for windows
+			let re = regex::Regex::new(r"\\{1}").unwrap();
+			let folder_sanitized : String = re.replace_all(&folder,"/").into_owned();
+			Self::update_ui(window, &folder_sanitized);
 		}
-		Self::update_ui(window, &folder);
+		else
+		{
+			Self::update_ui(window, &folder);
+		}
 		self.folder_path = folder.into();
 	}
 
