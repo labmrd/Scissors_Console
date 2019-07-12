@@ -126,6 +126,22 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 
 	let _ = writeln!(&mut file, "%{}", tm.rfc822());
 
+	// Add data information to top of files
+	if name == "adc"
+	{
+		let _ = writeln!(&mut file, "%Target Sample Rate: {} hz", SAMPLING_RATE);
+		let _ = writeln!(&mut file, "%timestamp, grasperLoadCell1, grasperLoadCell2");
+		let _ = writeln!(&mut file, "%[ns], [V], [V]");
+		let _ = writeln!(&mut file, "%[V]olts resolve to approximately 0.5 kg/V");
+	}
+	else if name == "enc"
+	{
+		let _ = writeln!(&mut file, "%Target Sample Rate: {} hz", SAMPLING_RATE);
+		let _ = writeln!(&mut file, "%timestamp, encoderCount");
+		let _ = writeln!(&mut file, "%[ns], [count]");
+		let _ = writeln!(&mut file, "%1 count resolves to approximately 0.05 degrees of rotation");
+	}
+
 	log::debug!("File created: {}", fpath.display());
 
 	Some(file)
