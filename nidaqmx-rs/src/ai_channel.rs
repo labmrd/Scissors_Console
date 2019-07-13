@@ -2,6 +2,7 @@ use super::{
 	get_steady_time_nanoseconds,
 	task_handle::{RawTaskHandle, TaskHandle},
 	DAQ_CALLBACK_FREQ, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
+	CALLBACK_PERIOD,
 };
 
 use std::{fmt, ptr};
@@ -16,6 +17,9 @@ const NUM_CHANNELS: usize = 2;
 const VOLTAGE_SPAN: f64 = 10.0;
 
 type RawScanData = [f64; NUM_CHANNELS];
+
+static mut AI_CALLBACK_INIT_TIME: u64 = 0;		// Initial timestamp [ns]
+static mut AI_CALLBACKS: u64 = 0;				// # of analog callbacks for this stream
 
 struct BatchedScan {
 	data: Box<[RawScanData]>,
@@ -111,7 +115,12 @@ impl AiChannel {
 			sample_rate: self.sample_rate,
 		};
 
-		unsafe {
+		unsafe
+		{
+			// Save the initial time, and initialize the "callback counter"
+			AI_CALLBACK_INIT_TIME = get_steady_time_nanoseconds();
+			AI_CALLBACKS = 0;
+
 			self.task_handle.register_read_callback(
 				self.batch_size as u32,
 				async_read_callback_impl,
@@ -158,7 +167,9 @@ unsafe fn read_analog_f64(
 	let samps_read_ptr = &mut samps_read as *mut _;
 
 	let mut scan = BatchedScan::new_uninit(n_samps as usize);
-	scan.timestamp = get_steady_time_nanoseconds();
+
+	AI_CALLBACKS += 1;
+	scan.timestamp = AI_CALLBACK_INIT_TIME + AI_CALLBACKS * CALLBACK_PERIOD;
 
 	let buf_len = (scan.data.len() * NUM_CHANNELS) as u32;
 	let buf_ptr = scan.data.as_mut_ptr() as *mut _ as *mut f64;

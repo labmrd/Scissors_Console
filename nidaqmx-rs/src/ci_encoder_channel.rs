@@ -3,6 +3,7 @@ use super::{
 	counter_generate_chan_desc, get_steady_time_nanoseconds,
 	task_handle::{RawTaskHandle, TaskHandle},
 	DAQ_CALLBACK_FREQ, EMPTY_CSTRING, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
+	CALLBACK_PERIOD,
 };
 
 use std::{ffi::CString, fmt, ptr};
@@ -18,6 +19,9 @@ const CLK_SRC_COUNTER_ID: u8 = 1;
 const ENCODER_COUNTER_ID: u8 = 0;
 
 const DUTY_CYCLE: f64 = 0.5;
+
+static mut ENC_CALLBACK_INIT_TIME: u64 = 0;		// Initial timestamp [ns]
+static mut ENCODER_CALLBACKS: u64 = 0;			// # of encoder callbacks for this stream
 
 pub type EncoderTick = i32;
 type RawScanData = Box<[EncoderTick]>;
@@ -110,7 +114,12 @@ impl CiEncoderChannel {
 			sample_rate: self.sample_rate,
 		};
 
-		unsafe {
+		unsafe
+		{
+			// Save the initial time, and initialize the "callback counter"
+			ENC_CALLBACK_INIT_TIME = get_steady_time_nanoseconds();
+			ENCODER_CALLBACKS = 0;
+
 			self.task_handle.register_read_callback(
 				self.batch_size as u32,
 				async_read_callback_impl,
@@ -203,7 +212,9 @@ unsafe fn read_digital_u32(
 	let samps_read_ptr = &mut samps_read as *mut _;
 
 	let mut scan = BatchedScan::new_uninit(n_samps as usize);
-	scan.timestamp = get_steady_time_nanoseconds();
+
+	ENCODER_CALLBACKS += 1;
+	scan.timestamp = ENC_CALLBACK_INIT_TIME + ENCODER_CALLBACKS * CALLBACK_PERIOD;
 
 	let buf_len = scan.data.len();
 	let buf_ptr = scan.data.as_mut_ptr() as *mut u32; // pretend the i32 is a u32
