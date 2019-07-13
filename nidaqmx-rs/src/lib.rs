@@ -10,7 +10,7 @@ const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
 const SCAN_WARNING: i32 = i32::max_value();
 
 const CALLBACK_PERIOD: u64 =		// DAQ Callback period [ns]
-			10e9 as u64 /
+			1e9 as u64 /
 			DAQ_CALLBACK_FREQ as u64;
 
 fn counter_generate_chan_desc(counter_id: u8) -> String {
