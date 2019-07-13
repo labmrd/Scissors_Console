@@ -106,7 +106,7 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 	fpath.set_file_name(format!(
 		"{}_{}",
 		name,
-		tm.rfc3339().to_string().replace(':', "-")
+		tm.rfc3339().to_string().replace(':', ".")
 	));
 
 	fpath.set_extension("csv");
