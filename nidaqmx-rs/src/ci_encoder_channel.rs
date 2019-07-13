@@ -70,7 +70,7 @@ impl BatchedScan {
 		let data_len = self.data.len() as u32;
 
 		let tstamp =
-			(1..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
+			(1..data_len+1).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
 
 		self.data
 			.iter()
