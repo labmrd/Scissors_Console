@@ -9,6 +9,7 @@ const DAQ_CALLBACK_FREQ: usize = 100; // hz
 const SAMPLE_TIMEOUT_SECS: f64 = 1.0;
 const SCAN_WARNING: i32 = i32::max_value();
 
+#[allow(dead_code)]
 const CALLBACK_PERIOD: u64 =		// DAQ Callback period [ns]
 			1e9 as u64 /
 			DAQ_CALLBACK_FREQ as u64;
@@ -18,7 +19,7 @@ fn counter_generate_chan_desc(counter_id: u8) -> String {
 	desc
 }
 
-fn get_steady_time_nanoseconds() -> u64 {
+pub fn get_steady_time_nanoseconds() -> u64 {
 	const TO_NS: u64 = 1e9 as u64;
 	let time = time::get_time();
 	time.sec as u64 * TO_NS + time.nsec as u64

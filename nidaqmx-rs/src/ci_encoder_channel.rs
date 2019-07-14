@@ -1,9 +1,9 @@
 use super::{
 	co_channel::*,
-	counter_generate_chan_desc, get_steady_time_nanoseconds,
+	counter_generate_chan_desc, //get_steady_time_nanoseconds,
 	task_handle::{RawTaskHandle, TaskHandle},
 	DAQ_CALLBACK_FREQ, EMPTY_CSTRING, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
-	CALLBACK_PERIOD,
+	// CALLBACK_PERIOD,
 };
 
 use std::{ffi::CString, fmt, ptr};
@@ -20,7 +20,7 @@ const ENCODER_COUNTER_ID: u8 = 0;
 
 const DUTY_CYCLE: f64 = 0.5;
 
-static mut ENC_CALLBACK_INIT_TIME: u64 = 0;		// Initial timestamp [ns]
+// static mut ENC_CALLBACK_INIT_TIME: u64 = 0;		// Initial timestamp [ns]
 static mut ENCODER_CALLBACKS: u64 = 0;			// # of encoder callbacks for this stream
 
 pub type EncoderTick = i32;
@@ -62,15 +62,16 @@ impl BatchedScan {
 
 	fn as_encoder_reading_iter<'a>(
 		&'a self,
-		sample_rate: usize,
+		_sample_rate: usize,
 	) -> impl Iterator<Item = EncoderReading> + 'a {
-		const TO_NANOSEC: u64 = 1e9 as u64;
+		// const TO_NANOSEC: u64 = 1e9 as u64;
 
 		let base_ts = self.timestamp;
 		let data_len = self.data.len() as u32;
 
 		let tstamp =
-			(0..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
+			// (0..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
+			(0..data_len).map(move |ind| base_ts - ind as u64);
 
 		self.data
 			.iter()
@@ -117,7 +118,7 @@ impl CiEncoderChannel {
 		unsafe
 		{
 			// Save the initial time, and initialize the "callback counter"
-			ENC_CALLBACK_INIT_TIME = get_steady_time_nanoseconds();
+			// ENC_CALLBACK_INIT_TIME = get_steady_time_nanoseconds();
 			ENCODER_CALLBACKS = 0;
 
 			self.task_handle.register_read_callback(
@@ -214,7 +215,8 @@ unsafe fn read_digital_u32(
 	let mut scan = BatchedScan::new_uninit(n_samps as usize);
 
 	ENCODER_CALLBACKS += 1;
-	scan.timestamp = ENC_CALLBACK_INIT_TIME + ENCODER_CALLBACKS * CALLBACK_PERIOD;
+	// scan.timestamp = ENC_CALLBACK_INIT_TIME + ENCODER_CALLBACKS * CALLBACK_PERIOD;
+	scan.timestamp = ENCODER_CALLBACKS * n_samps as u64;
 
 	let buf_len = scan.data.len();
 	let buf_ptr = scan.data.as_mut_ptr() as *mut u32; // pretend the i32 is a u32
