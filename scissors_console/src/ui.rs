@@ -265,7 +265,7 @@ impl UiEvent<'_> {
                 loop
                 {
 					// Wait for next cycle
-                    thread::sleep(std_time::Duration::from_millis(800));
+                    thread::sleep(std_time::Duration::from_millis(1000));
 
 					// beep to move in position
                     sink.play();
@@ -277,7 +277,7 @@ impl UiEvent<'_> {
 
 					// grasp
                     sink.play();
-                    thread::sleep(std_time::Duration::from_millis(750));
+                    thread::sleep(std_time::Duration::from_millis(1500));
                     sink.pause();	// release grasp
 
 
