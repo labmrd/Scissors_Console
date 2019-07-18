@@ -245,9 +245,9 @@ impl UiEvent<'_> {
 
                 for _i in 0..3
                 {
-                    thread::sleep(std_time::Duration::from_millis(1250));
+                    thread::sleep(std_time::Duration::from_millis(750));
                     sink.play();
-                    thread::sleep(std_time::Duration::from_millis(1250));
+                    thread::sleep(std_time::Duration::from_millis(1000));
                     sink.pause();
                     if App::read_flag(&c_stop_flag) {break;};
                 }
