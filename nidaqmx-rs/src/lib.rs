@@ -14,11 +14,18 @@ const CALLBACK_PERIOD: u64 =		// DAQ Callback period [ns]
 			1e9 as u64 /
 			DAQ_CALLBACK_FREQ as u64;
 
+// Time to subtract from timestamps; this is to prevent super massive numbers from being written
+// to the data files. It avoids number precision issues, and also reduces file size.
+// The time corresponds to the number of nanoseconds since the Linux Epoch, as of 
+// July 11, 2019 at 1:45:00 PM (CST).
+const TIMEPOINT: u64 = 1562870700000000000;
+
 fn counter_generate_chan_desc(counter_id: u8) -> String {
 	let desc = format!("Dev1/ctr{}", counter_id);
 	desc
 }
 
+// Current time since the Linux Epoch in nanoseconds
 pub fn get_steady_time_nanoseconds() -> u64 {
 	const TO_NS: u64 = 1e9 as u64;
 	let time = time::get_time();

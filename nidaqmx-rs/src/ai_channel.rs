@@ -1,8 +1,8 @@
 use super::{
-	// get_steady_time_nanoseconds,
+	get_steady_time_nanoseconds,
 	task_handle::{RawTaskHandle, TaskHandle},
 	DAQ_CALLBACK_FREQ, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
-	// CALLBACK_PERIOD,
+	CALLBACK_PERIOD, TIMEPOINT,
 };
 
 use std::{fmt, ptr};
@@ -18,7 +18,7 @@ const VOLTAGE_SPAN: f64 = 10.0;
 
 type RawScanData = [f64; NUM_CHANNELS];
 
-// static mut AI_CALLBACK_INIT_TIME: u64 = 0;		// Initial timestamp [ns]
+static mut AI_CALLBACK_INIT_TIME: Option<u64> = None;		// Initial timestamp [ns]
 static mut AI_CALLBACKS: u64 = 0;				// # of analog callbacks for this stream
 
 struct BatchedScan {
@@ -38,14 +38,14 @@ impl BatchedScan {
 	}
 
 	fn as_scan_iter<'a>(&'a self, _sample_rate: usize) -> impl Iterator<Item = ScanData> + 'a {
-		// const TO_NANOSEC: u64 = 1e9 as u64;
+		const TO_NANOSEC: u64 = 1e9 as u64;
 
 		let base_ts = self.timestamp;
 		let data_len = self.data.len() as u32;
 
 		let tstamp =
-			// (0..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / sample_rate as u64);
-			(0..data_len).map(move |ind| base_ts - ind as u64);
+			(0..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / _sample_rate as u64);
+			// (0..data_len).map(move |ind| base_ts - ind as u64);
 
 		self.data
 			.iter()
@@ -119,7 +119,7 @@ impl AiChannel {
 		unsafe
 		{
 			// Save the initial time, and initialize the "callback counter"
-			// AI_CALLBACK_INIT_TIME = get_steady_time_nanoseconds();
+			AI_CALLBACK_INIT_TIME = None;
 			AI_CALLBACKS = 0;
 
 			self.task_handle.register_read_callback(
@@ -169,9 +169,14 @@ unsafe fn read_analog_f64(
 
 	let mut scan = BatchedScan::new_uninit(n_samps as usize);
 
+	if AI_CALLBACK_INIT_TIME == None
+	{
+		AI_CALLBACK_INIT_TIME = Some(get_steady_time_nanoseconds() - TIMEPOINT);
+	};
+
 	AI_CALLBACKS += 1;
-	// scan.timestamp = AI_CALLBACK_INIT_TIME + AI_CALLBACKS * CALLBACK_PERIOD;
-	scan.timestamp = AI_CALLBACKS * n_samps as u64;
+	scan.timestamp = AI_CALLBACK_INIT_TIME.unwrap() + AI_CALLBACKS * CALLBACK_PERIOD;
+	// scan.timestamp = AI_CALLBACKS * n_samps as u64;
 
 	let buf_len = (scan.data.len() * NUM_CHANNELS) as u32;
 	let buf_ptr = scan.data.as_mut_ptr() as *mut _ as *mut f64;
