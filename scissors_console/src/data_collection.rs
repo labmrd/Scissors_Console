@@ -131,15 +131,15 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 	if name == "adc"
 	{
 		let _ = writeln!(&mut file, "%Target Sample Rate: {} hz", SAMPLING_RATE);
-		let _ = writeln!(&mut file, "%sampleNumber, grasperLoadCell1, grasperLoadCell2");
-		let _ = writeln!(&mut file, "%[count], [V], [V]");
+		let _ = writeln!(&mut file, "%timestamp, grasperLoadCell1, grasperLoadCell2");
+		let _ = writeln!(&mut file, "%[ns], [V], [V]");
 		let _ = writeln!(&mut file, "%[V]olts resolve to approximately 0.5 kg/V (see calibration data for today's date)");
 	}
 	else if name == "enc"
 	{
 		let _ = writeln!(&mut file, "%Target Sample Rate: {} hz", SAMPLING_RATE);
-		let _ = writeln!(&mut file, "%sampleNumber, encoderCount");
-		let _ = writeln!(&mut file, "%[count], [count]");
+		let _ = writeln!(&mut file, "%timestamp, encoderCount");
+		let _ = writeln!(&mut file, "%[ns], [count]");
 		let _ = writeln!(&mut file, "%AMT102-V CUI Encoder used. 8192 ticks per 360 degrees (x4 factor included).");
 	}
 
