@@ -90,10 +90,9 @@ impl DataCollectionHandle {
 		let thread_status = self.thread_handle.join();
 
 		match thread_status {
-			Ok(success_flag) if success_flag == true => log::info!("Data collection stopped"),
-			_ => {
-				log::error!("Unknown error has occured when trying to stop data collection thread")
-			}
+			Ok(false) => log::info!("Data collection stopped"),
+			Ok(true) => log::info!("Data collection stopped with error"),
+			Err(error) => log::error!("{:#?}",error)
 		};
 	}
 }
