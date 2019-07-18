@@ -267,6 +267,10 @@ impl UiEvent<'_> {
 					// Wait for next cycle
                     thread::sleep(std_time::Duration::from_millis(1000));
 
+
+					if App::read_flag(&c_stop_flag) {break;};	// check for stop button
+
+
 					// beep to move in position
                     sink.play();
                     thread::sleep(std_time::Duration::from_millis(200));
@@ -275,14 +279,17 @@ impl UiEvent<'_> {
 					// prepare for grasp
                     thread::sleep(std_time::Duration::from_millis(500));
 
+
+					if App::read_flag(&c_stop_flag) {break;};	// check for stop button
+
+
 					// grasp
                     sink.play();
                     thread::sleep(std_time::Duration::from_millis(1500));
                     sink.pause();	// release grasp
 
 
-					// check for stop button
-                    if App::read_flag(&c_stop_flag) {break;};
+                    if App::read_flag(&c_stop_flag) {break;};	// check for stop button
                 }
             });
 
