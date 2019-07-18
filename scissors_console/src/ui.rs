@@ -256,7 +256,7 @@ impl UiEvent<'_> {
                 if App::read_flag(&c_stop_flag) {return ();};
                 
                 let mut sink = rodio::Sink::new(&device);
-                sink.set_volume(0.5);
+                sink.set_volume(0.75);
                 sink.pause();
                 sink.append(grasp_tone);
 
