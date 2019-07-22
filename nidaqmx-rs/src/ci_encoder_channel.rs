@@ -1,9 +1,9 @@
 use super::{
 	co_channel::*,
-	counter_generate_chan_desc, get_steady_time_nanoseconds,
+	counter_generate_chan_desc,
 	task_handle::{RawTaskHandle, TaskHandle},
 	DAQ_CALLBACK_FREQ, EMPTY_CSTRING, SAMPLE_TIMEOUT_SECS, SCAN_WARNING,
-	CALLBACK_PERIOD, TIMEPOINT,
+	// get_steady_time_nanoseconds, CALLBACK_PERIOD,
 };
 
 use std::{ffi::CString, fmt, ptr};
@@ -64,14 +64,14 @@ impl BatchedScan {
 		&'a self,
 		_sample_rate: usize,
 	) -> impl Iterator<Item = EncoderReading> + 'a {
-		const TO_NANOSEC: u64 = 1e9 as u64;
+		// const TO_NANOSEC: u64 = 1e9 as u64;
 
 		let base_ts = self.timestamp;
 		let data_len = self.data.len() as u32;
 
 		let tstamp =
-			(0..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / _sample_rate as u64);
-			// (0..data_len).map(move |ind| base_ts - ind as u64);
+			// (0..data_len).map(move |ind| base_ts - ind as u64 * TO_NANOSEC / _sample_rate as u64);
+			(0..data_len).map(move |ind| base_ts - ind as u64);
 
 		self.data
 			.iter()
@@ -214,14 +214,15 @@ unsafe fn read_digital_u32(
 
 	let mut scan = BatchedScan::new_uninit(n_samps as usize);
 
-	if ENC_CALLBACK_INIT_TIME == None
-	{
-		ENC_CALLBACK_INIT_TIME = Some(get_steady_time_nanoseconds() - TIMEPOINT);
-	};
-
 	ENCODER_CALLBACKS += 1;
-	scan.timestamp = ENC_CALLBACK_INIT_TIME.unwrap() + ENCODER_CALLBACKS * CALLBACK_PERIOD;
-	// scan.timestamp = ENCODER_CALLBACKS * n_samps as u64;
+	// if ENC_CALLBACK_INIT_TIME == None
+	// {
+	// 	ENC_CALLBACK_INIT_TIME = Some(get_steady_time_nanoseconds());
+	// };
+
+	// scan.timestamp = ENC_CALLBACK_INIT_TIME.unwrap() + ENCODER_CALLBACKS * CALLBACK_PERIOD;
+	// scan.timestamp = get_steady_time_nanoseconds();	// Actual timestamp (jittery)
+	scan.timestamp = ENCODER_CALLBACKS * n_samps as u64;	// Sample count
 
 	let buf_len = scan.data.len();
 	let buf_ptr = scan.data.as_mut_ptr() as *mut u32; // pretend the i32 is a u32
