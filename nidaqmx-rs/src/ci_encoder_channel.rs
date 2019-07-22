@@ -131,9 +131,8 @@ impl CiEncoderChannel {
 			self.task_handle.register_done_callback(|_| (), ());
 		}
 
-		self.task_handle.launch();
-
-		AsyncEncoderChannel {
+		AsyncEncoderChannel
+		{
 			_encoder_chan: self,
 			recv,
 		}
@@ -189,6 +188,14 @@ struct AsyncEncoderChanInternal {
 pub struct AsyncEncoderChannel {
 	_encoder_chan: CiEncoderChannel,
 	recv: UnboundedReceiver<EncoderReading>,
+}
+
+impl AsyncEncoderChannel
+{
+	pub fn launch_task(&mut self) -> ()
+	{
+		self._encoder_chan.task_handle.launch();
+	}
 }
 
 impl Stream for AsyncEncoderChannel {

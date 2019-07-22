@@ -130,9 +130,8 @@ impl AiChannel {
 			self.task_handle.register_done_callback(|_| (), ());
 		}
 
-		self.task_handle.launch();
-
-		AsyncAiChannel {
+		AsyncAiChannel
+		{
 			_ai_chan: self,
 			recv,
 		}
@@ -147,6 +146,14 @@ struct AsyncAiChanInternal {
 pub struct AsyncAiChannel {
 	_ai_chan: AiChannel,
 	recv: UnboundedReceiver<ScanData>,
+}
+
+impl AsyncAiChannel
+{
+	pub fn launch_task(&mut self) -> ()
+	{
+		self._ai_chan.task_handle.launch();
+	}
 }
 
 impl Stream for AsyncAiChannel {

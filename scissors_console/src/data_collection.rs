@@ -35,16 +35,29 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 	let enc_plot_data = Arc::new(LatestSensorData::new());
 	let adc_plot_data = Arc::clone(&enc_plot_data);
 
-	let encoder_stream = encoder_chan
-		.make_async()
+	// Set up the NI tasks
+	let mut encoder_stream = encoder_chan.make_async();
+	let mut ai_stream = ai_chan.make_async();
+	
+	// Launch the tasks, record the time difference
+	encoder_stream.launch_task();
+	let delay = std::time::Instant::now();
+
+	ai_stream.launch_task();
+	let delay = delay.elapsed();
+
+	// Write the recorded time difference to the encoder file
+	writeln!(enc_file, "%adc stream late by: {} ns ({} samples)", delay.as_nanos(), ((delay.as_micros() as f32)/1000_f32).round()).expect("Failed to write time difference to encoder file");
+	
+	// Start the streams
+	let encoder_stream = encoder_stream
 		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
 			enc_plot_data.pos.store(data.pos, atomic::Ordering::Relaxed);
 		})
 		.map(move |data| writeln!(enc_file, "{}", data).expect("Failed to write data"))
 		.for_each(|_| future::ok(()));
-
-	let ai_stream = ai_chan
-		.make_async()
+	
+	let ai_stream = ai_stream
 		.bifurcate(UPDATE_UI_SAMP_COUNT, move |data| {
 			let pos = adc_plot_data.pos.load(atomic::Ordering::Relaxed);
 			let tstamp = adc_plot_data.start_t.elapsed().as_millis() as f64 / 1e3;
