@@ -9,3 +9,4 @@ nidaqmx-sys = {path = "../nidaqmx-sys"}
 
 time = "^0.1"
 futures = "^0.1"
+winapi = { version = "0.3", features = ["winuser","impl-default"] }

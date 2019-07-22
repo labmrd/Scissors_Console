@@ -16,20 +16,33 @@ const CALLBACK_PERIOD: u64 =		// DAQ Callback period [ns]
 
 // Time to subtract from timestamps; this is to prevent super massive numbers from being written
 // to the data files. It avoids number precision issues, and also reduces file size.
-// The time corresponds to the number of nanoseconds since the Linux Epoch, as of 
-// July 11, 2019 at 1:45:00 PM (CST).
-const TIMEPOINT: u64 = 1562870700000000000;
+// The time corresponds to July 11, 2019 at 1:45:00 PM (CST)
+// in the 18-digit LDAP/FILETIME timestamp format.
+const TIMEPOINT: u64 = 132080302920000000;
 
 fn counter_generate_chan_desc(counter_id: u8) -> String {
 	let desc = format!("Dev1/ctr{}", counter_id);
 	desc
 }
 
-// Current time since the Linux Epoch in nanoseconds
+// Current time minus the TIMEPOINT in nanoseconds
 pub fn get_steady_time_nanoseconds() -> u64 {
-	const TO_NS: u64 = 1e9 as u64;
-	let time = time::get_time();
-	time.sec as u64 * TO_NS + time.nsec as u64
+	get_steady_time_pretty_please_windows_i_swear_to_god()
+}
+
+use winapi::um::sysinfoapi::GetSystemTimePreciseAsFileTime;
+use winapi::shared::minwindef::FILETIME;
+
+// Current time minus the TIMEPOINT in nanoseconds
+fn get_steady_time_pretty_please_windows_i_swear_to_god() -> u64 {
+    let mut file_t = FILETIME::default();
+    unsafe { GetSystemTimePreciseAsFileTime(&mut file_t) };
+    
+    let t = ((file_t.dwHighDateTime as u64) << 32) | file_t.dwLowDateTime as u64;
+
+	let t = t - TIMEPOINT;
+
+    t * 100 // windows returns time as 100s of ns, convert to ns
 }
 
 pub use ai_channel::*;
