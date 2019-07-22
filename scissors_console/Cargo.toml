@@ -1,7 +1,7 @@
 [package]
 name = "scissors_console"
-version = "0.6.0"
-authors = ["Amer Safdari <safda004@umn.edu>"]
+version = "0.6.1"
+authors = ["Amer Safdari <safda004@umn.edu>", "Faizan Malik <malik036@umn.edu>"]
 edition = "2018"
 
 [dependencies]
