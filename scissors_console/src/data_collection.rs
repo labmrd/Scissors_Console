@@ -5,7 +5,9 @@ use futures::{
 	Poll,
 };
 
-use nidaqmx::{AiChannel, CiEncoderChannel, get_steady_time_nanoseconds};
+use nidaqmx::{AiChannel, CiEncoderChannel, 
+	// get_steady_time_nanoseconds,
+};
 
 use std::{
 	fs::{self, File, OpenOptions},
@@ -137,7 +139,7 @@ fn open_buffered_file(fpath: &mut PathBuf, name: &str) -> Option<BufWriter<File>
 	let mut file = BufWriter::with_capacity(BUF_CAPACITY, file);
 
 	let _ = writeln!(&mut file, "%{}", tm.rfc822());
-	let _ = writeln!(&mut file, "%Initial Timestamp: {} ns", get_steady_time_nanoseconds());
+	// let _ = writeln!(&mut file, "%Initial Timestamp: {} ns", get_steady_time_nanoseconds());
 
 	// Add data information to top of files
 	if name == "adc"
