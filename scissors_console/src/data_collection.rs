@@ -48,8 +48,10 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 	ai_stream.launch_task();
 	let delay = delay.elapsed();
 
+	let delay_sample_count = ((delay.as_micros() as f32)/1000_f32).round();
+
 	// Write the recorded time difference to the encoder file
-	writeln!(enc_file, "%adc stream late by: {} ns ({} samples)", delay.as_nanos(), ((delay.as_micros() as f32)/1000_f32).round()).expect("Failed to write time difference to encoder file");
+	writeln!(enc_file, "%adc stream late by: {} ns ({} samples)", delay.as_nanos(), delay_sample_count).expect("Failed to write time difference to encoder file");
 	
 	// Start the streams
 	let encoder_stream = encoder_stream
@@ -65,7 +67,11 @@ pub fn start(fpath: &mut PathBuf) -> Option<DataCollectionHandle> {
 			let tstamp = adc_plot_data.start_t.elapsed().as_millis() as f64 / 1e3;
 			ui::WindowHandle::append_to_chart(tstamp, data.data[0], data.data[1], pos);
 		})
-		.map(move |data| writeln!(adc_file, "{}", data).expect("Failed to write data"))
+		.map(move |mut data| 
+		{
+			data.timestamp += delay_sample_count as u64;
+			writeln!(adc_file, "{}", data).expect("Failed to write data")
+		})
 		.for_each(|_| future::ok(()));
 
 	let data_stream = ai_stream.join(encoder_stream).map(|_| ()).map_err(|_| ());
